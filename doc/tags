@@ -1,0 +1,12 @@
+locator	locator.txt	/*locator*
+locator-built-ins	locator.txt	/*locator-built-ins*
+locator-configuration	locator.txt	/*locator-configuration*
+locator-custom-sources	locator.txt	/*locator-custom-sources*
+locator-flags	locator.txt	/*locator-flags*
+locator-health	locator.txt	/*locator-health*
+locator-highlights	locator.txt	/*locator-highlights*
+locator-installation	locator.txt	/*locator-installation*
+locator-keys	locator.txt	/*locator-keys*
+locator-table-of-contents	locator.txt	/*locator-table-of-contents*
+locator-ui-select	locator.txt	/*locator-ui-select*
+locator-usage	locator.txt	/*locator-usage*

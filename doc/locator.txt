@@ -1,0 +1,388 @@
+*locator*                            A dependency-free fuzzy picker for Neovim
+
+==============================================================================
+Table of Contents                                  *locator-table-of-contents*
+
+1. Installation                                         |locator-installation|
+2. Configuring the picker                              |locator-configuration|
+3. Health                                                     |locator-health|
+4. Using the picker                                            |locator-usage|
+  - vim.ui.select                                          |locator-ui-select|
+  - Built-in sources                                       |locator-built-ins|
+  - Keys inside a picker                                        |locator-keys|
+  - Flags                                                      |locator-flags|
+5. Writing your own source                            |locator-custom-sources|
+6. Highlights                                             |locator-highlights|
+
+  [!NOTE] **Work in progress.** The plugin is stable and usable, but it is still
+  evolving. Breaking changes can happen at any time. Pin a commit if you need a
+  fixed version.
+A dependency-free fuzzy picker for Neovim.
+
+Built-in sources (files, live grep, buffers, LSP symbols and references,
+diagnostics, quickfix, keymaps, commands and more) behind a single `:Locate`
+command. It can replace `vim.ui.select`, and other plugins can register their
+own sources.
+
+Notable behavior:
+
+- Search flags can be changed without reopening the picker.
+- Grep search includes unsaved changes.
+
+
+==============================================================================
+1. Installation                                         *locator-installation*
+
+
+  **Requires Neovim >= 0.10.** No plugin dependencies. `live_grep` and
+  `buffer_lines` require ripgrep <https://github.com/BurntSushi/ripgrep> on
+  `$PATH`; every other source, `files` included, is pure Lua.
+**vim.pack**: the built-in package manager (Neovim >= 0.12, `:help vim.pack`):
+
+>lua
+    vim.pack.add({ "https://github.com/mbfoss/locator.nvim" })
+<
+
+**lazy.nvim**
+
+>lua
+    { "mbfoss/locator.nvim", cmd = "Locate" }
+<
+
+Use `lazy = false` if your own config sets `vim.ui.select` to
+`require("locator.select")` or registers a `:Pick` alias. Those lines need the
+plugin loaded at startup.
+
+
+==============================================================================
+2. Configuring the picker                              *locator-configuration*
+
+`:Locate` and the highlight groups are registered by the plugin itself, so
+`setup()` is only needed to change a default:
+
+>lua
+    require("locator").setup({
+      -- A picker opens as a bar across the bottom of the editor; <C-t> shows the
+      -- preview on its right. height_ratio is the share of the usable rows the bar
+      -- spans, the border ring excluded; preview_ratio is the share of the frame's
+      -- width the preview takes.
+      height_ratio        = 0.25,
+      preview_ratio       = 0.5,
+      auto_complete_flags = true, -- auto-open flag completion on an empty flags line and while typing
+      replace_copen       = false, -- open the quickfix picker in place of the native quickfix window
+      rg_path             = nil, -- ripgrep executable for `live_grep` (unset: "rg" off the `PATH`)
+    })
+<
+
+With `replace_copen`, a quickfix window is closed again and the `quickfix`
+source opens in its place. This covers `:copen` however it runs, including the
+window `<C-q>` calls for and the one `:grep` or `:make` opens. An empty list
+keeps the native window, and a location list is left alone.
+
+A picker opens as a compact bar, keeping a cell of margin either side and flush
+with the bottom of the editor. `<C-t>` shows the preview on the right of that
+bar, when the source provides one, splitting the width between the list and
+preview; the ratio is clamped so the list always keeps some room. `<C-e>`
+expands the prompt and list to fill the editor top to bottom, keeping a cell of
+margin either side; a preview that is showing stays on the right and grows with
+the frame.
+
+To use a shorter name such as `:Pick`, register an alias; it forwards its
+arguments and completion to `:Locate`:
+
+>lua
+    require("locator").create_cmd_alias("Pick")
+<
+
+
+==============================================================================
+3. Health                                                     *locator-health*
+
+>vim
+    :checkhealth locator
+<
+
+Reports:
+
+- whether `:Locate` is registered;
+- the options that differ from the defaults;
+- as a warning, any option name locator does not define. `setup()` merges the
+    table as given, so a misspelled name would otherwise be ignored.
+
+
+==============================================================================
+4. Using the picker                                            *locator-usage*
+
+`:Locate` opens a source and completes both source names and their flags:
+
+>vim
+    :Locate files
+    :Locate live_grep
+    :Locate buffers
+<
+
+An extra argument seeds the initial query:
+
+>vim
+    :Locate live_grep TODO
+<
+
+With no argument, `:Locate` lists the available sources through
+`vim.ui.select`.
+
+
+VIM.UI.SELECT                                              *locator-ui-select*
+
+`vim.ui.select` is a global other plugins may also want, so locator does not
+take it over. Assign it yourself:
+
+>lua
+    vim.ui.select = require("locator.select")
+<
+
+
+BUILT-IN SOURCES                                           *locator-built-ins*
+
+  -----------------------------------------------------------------------
+  Source                              What it lists
+  ----------------------------------- -----------------------------------
+  files                               Files in a folder (cwd by default)
+
+  config_files                        Files under stdpath("config")
+
+  recent_files                        The oldfiles list
+
+  live_grep                           File contents, including modified
+                                      unsaved files
+
+  buffer_lines                        Lines of the current buffer,
+                                      searched with ripgrep
+
+  buffers                             Loaded buffers
+
+  windows                             Open windows
+
+  quickfix / loclist                  The quickfix or location list
+
+  jumplist                            The jump list
+
+  marks                               Buffer-local and global marks
+
+  lsp_references                      References to the symbol under the
+                                      cursor
+
+  lsp_definitions                     Definitions of the symbol under the
+                                      cursor
+
+  lsp_declarations                    Declarations of the symbol under
+                                      the cursor
+
+  lsp_implementations                 Implementations of the symbol under
+                                      the cursor
+
+  lsp_type_definitions                Type definitions of the symbol
+                                      under the cursor
+
+  lsp_incoming_calls                  Call sites of the symbol under the
+                                      cursor
+
+  lsp_outgoing_calls                  Functions the symbol under the
+                                      cursor calls
+
+  lsp_document_symbols                LSP symbols in the current buffer
+
+  lsp_workspace_symbols               LSP symbols across the workspace
+
+  document_diagnostics                Diagnostics in the current buffer
+
+  workspace_diagnostics               Diagnostics across the workspace
+
+  keymaps                             Mappings, with their source
+                                      location
+
+  commands                            User and built-in commands
+
+  command_history / search_history    : and / history, newest first
+
+  autocommands                        Registered autocommands
+
+  highlights                          Highlight groups
+
+  colorschemes                        Installed colorschemes, applied as
+                                      you move
+
+  registers                           Register contents
+
+  help_tags                           :help tags from the runtimepath
+
+  spell_suggest                       Spelling suggestions for the word
+                                      under the cursor
+  -----------------------------------------------------------------------
+Notes:
+
+- `files` walks the folder with libuv (`fs_scandir`) in pure Lua and does not
+    require `fd`.
+- `live_grep` searches the in-memory text of open buffers, so unsaved
+    modifications are included; files with no open buffer are searched on disk.
+    `buffers` searches the open buffers alone, skipping the directory walk, so
+    there is nothing for `follow`, `hidden` and `no-ignore` to act on.
+- `buffer_lines` searches the current buffer with ripgrep. Its query and flags
+    (`regex`, `case`, `word`, `line`, `invert`) work as in `live_grep`. As in
+    `files` and `live_grep`, an empty query lists nothing.
+- `lsp_definitions`, `lsp_declarations`, `lsp_implementations` and
+    `lsp_type_definitions` jump straight to their target on a single result.
+- `lsp_workspace_symbols` asks the server once with an empty query and filters
+    the result locally. Servers that refuse an empty query return nothing.
+- `lsp_incoming_calls` lands on each call site inside the caller;
+    `lsp_outgoing_calls` lands on each callee’s definition.
+- While a server reports background work over LSP work-done progress, the
+    `lsp_*` sources open with an `LSP busy, results may be incomplete` row;
+    rerun once the work finishes.
+- `colorschemes` applies each scheme as the cursor moves and restores the
+    original one if the picker is closed without a choice.
+- `command_history` and `search_history` put the chosen entry back on the
+    command line unexecuted.
+- `resume` reopens the previous picker with its last query and cursor position,
+    without re-running the source’s setup step.
+
+
+KEYS INSIDE A PICKER                                            *locator-keys*
+
+`g?` shows the full list:
+
+  Key             Action
+  --------------- --------------------------------------------
+  <CR>            Confirm
+  <Esc>           Close
+  <C-n> / <C-p>   Next / previous item
+  <C-d> / <C-u>   Scroll half a page
+  <C-j> / <C-k>   Next / previous history entry
+  <C-q>           Send results to the quickfix list
+  <C-t>           Toggle the preview
+  <C-e>           Toggle expanded mode
+  <C-l>           Move focus between the prompt and the list
+  <C-f>           Switch between the query and the flags
+  <C-r><C-w>      Insert the original <cword>
+
+FLAGS                                                          *locator-flags*
+
+Sources can accept flags beside the query. The prompt line holds one section at
+a time; `<C-f>` switches between them.
+
+- Query section: each written flag stands in front of the line as a pill
+    (`hidden` `dir=src`), the last pill closing before the line so a leading
+    space in the query is visible.
+- Flags section: the prefix reads `Flags❯` and the line holds the flags alone.
+
+Consequences:
+
+- The query is verbatim: spaces, backslashes and dashes are ordinary characters
+    and nothing needs escaping.
+- When you leave the flags section, any gaps added while typing flags are
+    reduced to one space each. An escaped space (`dir=my\ src`) is part of a value
+    and remains.
+- Completion opens on arriving at an empty flags section and as you type
+    (disable with `auto_complete_flags`).
+
+Syntax:
+
+- Switches are `<name>`, filters `<name>=<value>`.
+- `\` escapes a space or backslash in a value: `dir=my\ src`, `dir=a\\b`.
+    Escaping follows |<f-args>| plus `\,` for a literal comma. Only
+    whitespace, `,` and `\` are escapable, and a `\` before anything else is that
+    character.
+- The `=` form is exact, so a value can be empty (`filter=`) or read as a flag
+    name (`dir=hidden`).
+- Names match loosely: `no-ignore`, `noignore` and `NoIgnore` are one flag.
+- A filter taking several values takes them comma-separated in one go:
+    `type=lua,rust`, `filter=*.lua,*.md`.
+- Repeating a filter is a mistake; the last occurrence wins. A switch takes no
+    value, so `hidden=false` and `hidden=true` are the same mistake and both
+    leave the switch alone. Writing a switch twice is no mistake.
+
+All flag errors (a typo, a missing value, a value outside a flag’s set, or a
+word that names no flag) are shown the same way:
+
+- an underline and a short message under the prompt;
+- the search stops until the flags parse;
+- a message about the flag the cursor is still inside appears after the cursor
+    moves on. Away from the flags, it appears at once, so a stopped search always
+    reports the reason.
+
+`:Locate` keeps the two apart the same way:
+
+- A line opening on `--flags` reads everything up to the `--` that closes it as
+    the flags, and the rest as the query:
+    >vim
+        :Locate files --flags dir=src hidden -- TODO
+    <
+- A line opening on anything else is the query alone, so a query needs no quoting
+    and nothing in it is read as a flag.
+
+A query too long for one line wraps rather than scrolling out of sight: the
+prompt grows a row at a time, taking rows from the list, up to an even split
+with it.
+
+
+==============================================================================
+5. Writing your own source                            *locator-custom-sources*
+
+Minimal example:
+
+>lua
+    require("locator").register("my_source", {
+      prompt     = "My source",
+      finder     = function(query, flags, fetch_opts, callback)
+        callback({ { label_chunks = { { "an item" } }, data = { ... } } })
+      end,
+      on_confirm = function(data) ... end,
+    })
+<
+
+- The spec may also be a function returning a spec, built lazily on each open.
+- Every field: the `locator.PickerSpec` annotation in
+    `lua/locator/init.lua` <lua/locator/init.lua>.
+
+Naming:
+
+- Built-ins and third-party sources share one flat namespace, so `register`
+    never overwrites: a taken name gets a counter appended (`files` → `files_2`),
+    with a warning, and `register` returns the name actually used.
+- A name that could never be opened is an error, not a warning. This covers the
+    empty string, a name containing whitespace (`:Locate` splits its arguments on
+    whitespace), and `resume` (`:Locate` handles it before consulting the
+    registry).
+
+
+==============================================================================
+6. Highlights                                             *locator-highlights*
+
+  -----------------------------------------------------------------------
+  Group                               Links to
+  ----------------------------------- -----------------------------------
+  LocatorMatch                        Visual
+
+  LocatorPath                         @module
+
+  LocatorLspReference                 Label
+
+  LocatorBufferIndicator              Special
+
+  LocatorFlagPill                     Visual
+
+  LocatorFlagPillEdge                 derived: the colour LocatorFlagPill
+                                      is filled with (its foreground
+                                      where the group is reversed)
+
+  LocatorRule                         derived: the foreground of NonText
+  -----------------------------------------------------------------------
+Filetype icons in `files` and `config_files` come from an installed icon
+provider. locator ships no icon data. It tries, in order, `nvim-web-icon`,
+keystone.nvim <https://github.com/mbfoss/keystone.nvim> (`keystone.icons`) and
+mini.icons <https://github.com/echasnovski/mini.icons>, and uses the first one
+found. Each icon uses the highlight group its provider returns. With no
+provider installed, rows are rendered without icons.
+
+Generated by panvimdoc <https://github.com/kdheepak/panvimdoc>
+
+vim:tw=78:ts=8:noet:ft=help:norl:

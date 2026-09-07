@@ -1,0 +1,201 @@
+local M = {}
+
+local function _is_regular_win(winid)
+    if not vim.api.nvim_win_is_valid(winid) then return false end
+    local cfg = vim.api.nvim_win_get_config(winid)
+    if cfg.relative ~= "" then return false end         -- skip popups
+    if vim.wo[winid][0].winfixbuf then return false end -- skip fixed windows
+    return true
+end
+
+---@param winid integer
+---@param line? integer 1-based line number (nil = just open)
+---@param col?  integer 0-based column (nil = column 0)
+local function _safe_set_cursor_pos(winid, line, col)
+    if not (line and type(line) == 'number' and line > 0) then return end
+    if not vim.api.nvim_win_is_valid(winid) then return end
+    local bufnr = vim.api.nvim_win_get_buf(winid)
+    if not vim.api.nvim_buf_is_valid(bufnr) then return end
+    local maxline = vim.api.nvim_buf_line_count(bufnr)
+    line = math.min(line, maxline)
+    local line_length = #vim.api.nvim_buf_get_lines(bufnr, line - 1, line, true)[1]
+    if col and type(col) == 'number' and col >= 0 then
+        col = math.min(col, line_length)
+    else
+        col = 0
+    end
+    vim.api.nvim_win_set_cursor(winid, { line, col })
+end
+
+---@return number winid
+local function _get_regular_window()
+    local cur_win = vim.api.nvim_get_current_win()
+    if _is_regular_win(cur_win) then
+        return cur_win
+    end
+
+    local tabpage = vim.api.nvim_get_current_tabpage()
+    for _, winid in ipairs(vim.api.nvim_tabpage_list_wins(tabpage)) do
+        if winid ~= cur_win and _is_regular_win(winid) then
+            return winid
+        end
+    end
+
+    vim.cmd('vsplit')
+    local newwin = vim.api.nvim_get_current_win()
+    -- A split inherits window-local options from its parent, so splitting off a
+    -- winfixbuf panel yields a winfixbuf window too; clear it so a file can load.
+    vim.wo[newwin][0].winfixbuf = false
+    return newwin
+end
+
+
+--- @param buffer integer Buffer to display, or 0 for current buffer
+--- @param enter boolean Enter the window (make it the current window)
+--- @param config vim.api.keyset.win_config Map defining the window configuration
+--- @param on_close function
+--- @return integer winid, integer augroup
+function M.create_window(buffer, enter, config, on_close)
+    local win = vim.api.nvim_open_win(buffer, enter, config)
+    local augroup = vim.api.nvim_create_augroup("locate_window_#" .. win, { clear = true })
+    vim.api.nvim_create_autocmd("WinClosed", {
+        group = augroup,
+        callback = function(args)
+            local closedwin = tonumber(args.match)
+            if closedwin == win then
+                vim.api.nvim_del_augroup_by_id(augroup)
+                on_close()
+            end
+        end
+    })
+    return win, augroup
+end
+
+--- A scratch buffer; `buffer_options` override the defaults. `filetype` is set
+--- last, after `on_delete` is hooked up, so `FileType` handlers see the final
+--- options and a deletion from one still reaches `on_delete`.
+---@param listed boolean
+---@param buffer_options vim.bo?
+---@param on_delete function?
+function M.create_scratch_buffer(listed, buffer_options, on_delete)
+    local buf = vim.api.nvim_create_buf(listed, true)
+    local bo = { ---@type vim.bo
+        buftype = "nofile",
+        swapfile = false,
+        modeline = false,
+    }
+    if not listed then
+        bo.bufhidden = 'wipe'
+    end
+    if buffer_options then
+        for k, v in pairs(buffer_options) do
+            bo[k] = v
+        end
+    end
+    local filetype = bo.filetype
+    bo.filetype = nil
+    for k, v in pairs(bo) do
+        vim.bo[buf][k] = v
+    end
+    if on_delete then
+        vim.api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
+            buffer = buf,
+            once = true,
+            callback = function(ev)
+                on_delete()
+            end,
+        })
+    end
+    if filetype then
+        vim.bo[buf].filetype = filetype
+    end
+    return buf
+end
+
+---@param filepath string
+---@param line? integer 1-based line number (nil = just open)
+---@param col?  integer 0-based column (nil = column 0)
+---@param activate boolean? activates the file window
+---@return number winid or -1
+---@return number bufnr or -1
+function M.smart_open_file(filepath, line, col, activate)
+    if line and line < 1 then line = nil end
+    if col and col < 0 then col = nil end
+    if not filepath or filepath == "" then return -1, -1 end
+
+    -- Absolute + symlink-resolved: bufadd() expands relative paths against the
+    -- cwd, so an un-absolutized name can resolve to a different buffer.
+    local full_path = vim.fn.resolve(vim.fn.fnamemodify(filepath, ":p"))
+
+    -- Exact-path lookup/create, no glob or fuzzy fallback. bufadd() only makes
+    -- the (unloaded) entry; `:buffer` below does the reading.
+    local bufnr = vim.fn.bufadd(full_path)
+    if bufnr == 0 then
+        return -1, -1
+    end
+
+    -- Already in the current window: nothing to switch to.
+    local cur_win = vim.api.nvim_get_current_win()
+    if vim.api.nvim_win_get_buf(cur_win) == bufnr then
+        _safe_set_cursor_pos(cur_win, line, col)
+        return cur_win, bufnr
+    end
+
+    -- Reuse another window already showing this buffer.
+    local tabpage = vim.api.nvim_get_current_tabpage()
+    for _, winid in ipairs(vim.fn.win_findbuf(bufnr)) do
+        if vim.api.nvim_win_get_tabpage(winid) == tabpage and _is_regular_win(winid) then
+            if activate ~= false then
+                vim.api.nvim_set_current_win(winid)
+            end
+            _safe_set_cursor_pos(winid, line, col)
+            return winid, bufnr
+        end
+    end
+
+    local winid = _get_regular_window()
+    if activate ~= false then
+        vim.api.nvim_set_current_win(winid)
+    end
+
+    -- pcall is required here: the load can abort for reasons the caller cannot
+    -- check for up front -- an existing swap file the user answers "quit" to, an
+    -- unreadable file, E37 on a modified buffer under 'nohidden' -- and an
+    -- uncaught Vim error unwinds into the picker callback as a stack traceback.
+    local ok, err = pcall(vim.fn.win_execute, winid, "buffer " .. bufnr)
+    if not ok or not vim.api.nvim_win_is_valid(winid)
+        or vim.api.nvim_win_get_buf(winid) ~= bufnr then
+        -- Aborted: leave the window on whatever it was showing, and leave the
+        -- buffer unlisted so a failed open does not litter `:ls`.
+        if not ok and err and err ~= "" then
+            vim.notify("locator: " .. tostring(err), vim.log.levels.WARN)
+        end
+        return -1, -1
+    end
+    vim.bo[bufnr].buflisted = true
+
+    vim.api.nvim_win_set_buf(winid, bufnr)
+    _safe_set_cursor_pos(winid, line, col)
+    return winid, bufnr
+end
+
+---@param bufnr integer
+---@param line? integer 1-based line number (nil = just open)
+---@param col?  integer 0-based column (nil = column 0)
+---@param activate? boolean focus the target window (default true)
+---@return number winid
+function M.smart_open_buffer(bufnr, line, col, activate)
+    local cur_win = vim.api.nvim_get_current_win()
+    local winid = _get_regular_window()
+    if activate ~= false then
+        vim.api.nvim_set_current_win(winid)
+    elseif vim.api.nvim_win_is_valid(cur_win) then
+        -- `_get_regular_window` may have split one off and entered it.
+        vim.api.nvim_set_current_win(cur_win)
+    end
+    vim.fn.win_execute(winid, "buffer " .. bufnr)
+    _safe_set_cursor_pos(winid, line, col)
+    return winid
+end
+
+return M

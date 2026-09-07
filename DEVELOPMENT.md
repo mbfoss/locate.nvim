@@ -1,0 +1,213 @@
+# Development
+
+Technical notes for working on locator.nvim.
+
+## Requirements
+
+- Neovim ≥ 0.10 (enforced at load time in [`plugin/locator.lua`](plugin/locator.lua))
+- [busted](https://lunarmodules.github.io/busted/) for the test suite,
+  installed for Lua 5.1 (see below)
+- [ripgrep](https://github.com/BurntSushi/ripgrep) for the `live_grep` and
+  `buffer_lines` sources at runtime
+
+## Testing
+
+[busted](https://lunarmodules.github.io/busted/) specs in [`tests/`](tests/),
+discovered through [`.busted`](.busted) and run through
+[`tests/nvim-lua`](tests/nvim-lua), so each spec executes inside a real Neovim
+and can use the `vim` API.
+
+```bash
+# Run the whole suite
+make test
+
+# Pass flags through to busted
+make test BUSTED_ARGS="--filter=registry -o gtest"
+make test BUSTED_ARGS=tests/registry_spec.lua
+```
+
+- busted must already be installed for Lua 5.1, the version Neovim embeds,
+  with `luarocks --lua-version=5.1 --local install busted`; `make test` fails
+  if it is missing rather than installing anything.
+- The runner is defined in the [`Makefile`](Makefile).
+- [`tests/init.lua`](tests/init.lua) is the busted helper that puts the plugin
+  on the runtimepath.
+
+## Architecture
+
+```
+plugin/locator.lua        Neovim version guard, `:Locate`, highlight groups (loaded on startup)
+lua/locator/init.lua      public API: setup, pick, register, resume
+lua/locator/cmdline.lua   `:Locate` argument parsing and completion
+lua/locator/registry.lua  name -> spec table for the built-in sources
+lua/locator/select.lua    vim.ui.select implementation
+lua/locator/base/         the picker engine
+lua/locator/pickers/      one file per built-in source
+lua/locator/icons.lua     filetype icons (optional, via keystone.nvim)
+lua/locator/util/         shared low-level toolkit (see below)
+tests/                   busted specs
+```
+
+### The engine (`base`)
+
+**`picker.lua`**: the window, list rendering, preview, keymaps and the async
+fetch loop. Everything user-visible happens here.
+
+**`pickertools.lua`**: matching and highlighting helpers shared by sources:
+
+- `match_label`: fuzzy subsequence + highlight chunks;
+- `match_globs`: rg-style glob matching;
+- `file_preview` / `buffer_preview` loaders; the latter previews `data.bufnr`
+  when that buffer is loaded and falls back to the file on disk;
+- `make_history_provider`, persisting per-source query history under
+  `stdpath("state")/locator/pickhist.<name>.json`.
+
+**`rgutil.lua`**: the ripgrep interface the sources that search with it share:
+the resolved executable, `--json` record parsing, match chunks, `--type-list`
+completion, and the argument list the flags build.
+
+- The flag vocabulary is split by what it says. `rgutil.MATCH_FLAGS` is *what*
+  to match (`regex`, `case`, `nocase`, `word`, `line`, `invert`), shared by
+  every search; `live_grep` composes its own schema around it for *where*
+  (`dir`, `filter`, `type`) and *how to walk it* (`follow`, `hidden`,
+  `no-ignore`, `max-depth`), which a single buffer has no use for. Its
+  `buffers` skips the walk altogether, leaving the open buffers as the search.
+- `build_cmd` holds what any search shares (the JSON output contract, how the
+  query is read); its `stdin` flag adds the `-` target, for both the in-buffer
+  half of `live_grep` and `buffer_lines`, which searches the buffer by writing
+  its lines to rg.
+
+**`queryflags.lua`**: reads a flags line (`switch`, `key=value`,
+`key=one,two`) and drives flag completion.
+
+- The two prompt sections never share a line: the flags are a mode of their own
+  (`<C-f>`), and the parser is handed the flags alone, with the query one line
+  over. So a name needs no marking prefix, and a word naming no flag is a
+  mistake.
+- Everything outside the prompt keeps the two apart too: `Picker.initial_flags`
+  beside `initial_query`, `on_close(query, flag_text, index)`,
+  `:Locate --flags … --` beside the query that runs on after it, and the query
+  history, which `_encode_history` writes as JSON `{q=..,f=..}` once a flagged
+  entry needs it and as the plain query otherwise.
+- `\` escaping is local to a value and follows `:h <f-args>` plus the list
+  separator: only whitespace, `,` and `\` are escapable.
+- A `multi` flag takes its values comma-separated in one token
+  (`type=lua,rust`) and comes back as a `string[]`.
+- Every flag is written at most once; a repetition is an error, with the last
+  one winning.
+- `parse` never fails on what was typed: anything doubtful comes back as a
+  `ParseResult.errors` entry beside the flags it could read, which the picker
+  underlines in the prompt. A malformed *schema* does fail at once (`strict`
+  without `values` asserts).
+- A line carrying an error has no single reading, so the picker refuses to
+  search it at all: the fetch is cancelled and the list cleared until the
+  errors are gone.
+- Every problem is reported, including the half-written states a correct flag
+  passes through. Telling those apart takes the cursor, so the picker is where
+  an error's *message* is held back until the cursor leaves what it points at;
+  the search stops either way.
+
+**`layouts.lua`**: geometry for the list/preview floats. The prompt's height
+is an input: the picker measures what the query wraps to with
+`nvim_win_text_height` and asks for that many rows, which `_split_frame` grants
+out of the list's share, never past an even split with it.
+
+### Sources
+
+A source is an `locator.PickerSpec`: a `prompt`, a `finder` turning (query,
+flags) into items, an `on_confirm`, and optional `flags`, `previewer`, `setup`
+and `quickfix_formatter`.
+
+- Nothing about a source is special-cased by the engine: the built-ins in
+  [`lua/locator/pickers/`](lua/locator/pickers/) use exactly the interface
+  anything registered with `require("locator").register` uses.
+- [`registry.lua`](lua/locator/registry.lua) maps each built-in name to a
+  *function* returning its spec, so a source's module is `require`d only the
+  first time it is opened. Keep `setup()` cheap and defer heavy work to first
+  use.
+- Names are unique: `register` appends a counter (`tasks_2`) rather than
+  overwriting, warns, and returns the name it used. Nothing already in the
+  table can be replaced, built-in or not.
+- A `finder` may return a cancel function; the engine calls it when the query
+  changes or the picker closes, so long-running work (rg, LSP requests) must be
+  cancellable.
+
+### Ranking
+
+The engine sorts each result set by `item.score`, best first, before rendering.
+A source opts in by passing through the score `match_label` gave it:
+
+```lua
+local match = pickertools.match_label(label, query)
+if match then
+    table.insert(items, { label_chunks = match.chunks, score = match.score, data = ... })
+end
+```
+
+Two properties make this work without per-source configuration:
+
+- `match_label` reports **no score for an empty query**, so an unfiltered list
+  reads in the order its source produced: `lsp_references` by file and
+  position, `buffers` by number, `marks` grouped local-then-global. Ranking
+  starts only once there is a query to rank by.
+- The sort is **stable**. `table.sort` is not, and equal scores are the common
+  case, so the engine sorts an index array and breaks ties on position;
+  otherwise equal-scoring rows reshuffle on every keystroke.
+
+A source leaving `score` unset is never reordered. Four do so deliberately,
+each with the reason in the code:
+
+- `spell_suggest`: `spellsuggest()` already ranks by likelihood;
+- `quickfix` / `loclist`: the list's order belongs to whatever built it;
+- `jumplist`: recency is the reason you opened it;
+- `buffer_lines`: rg reports in document order and the list is read the same
+  way, so the line numbers stay monotonic.
+
+Other source behaviours:
+
+- A source can decline to open twice over: its spec builder may return `nil`
+  (no marks are set, no LSP client answers `workspace/symbol`), and an async
+  `setup` may call back with `nil` data. The LSP location sources use the
+  latter to jump straight to a lone result instead of showing a one-row picker.
+- `on_confirm` is called on *every* close, with `nil` when the picker was
+  dismissed. That is where a source undoes anything it did while previewing,
+  as `colorschemes` does when it restores the original scheme.
+- `buffer_lines` and the in-buffer half of `live_grep` search a buffer's
+  in-memory text by streaming it to ripgrep's stdin, both through `bufloader`:
+  the buffer is read a chunk at a time, so a very large one never holds the UI.
+  The read is pinned to the buffer's revision, so a buffer edited or reloaded
+  mid-read ends the read (`buffer_lines` declines to open, `live_grep` reports
+  it in the list) instead of showing line numbers from text that has moved.
+
+### Shared toolkit (`util`)
+
+[`lua/locator/util/`](lua/locator/util/) holds the low-level primitives the
+picker builds on: `Spinner`, `bufloader`, `floatwin`, `fsutil`, `spawn`,
+`strutil`, `timer` and `ui`. These are plugin-agnostic on purpose, knowing
+nothing about pickers, so prefer extending `util` over duplicating window,
+filesystem or process plumbing inside a source.
+
+`bufloader` reads a buffer a chunk of lines at a time, parking on a timer
+between chunks so the main loop gets a turn, the way `fsutil.async_walk_dir`
+slices a directory walk. It is pinned to the buffer's `changedtick`, so a
+buffer edited partway through reports that rather than handing back line
+numbers from text that has moved.
+
+### Icons
+
+`lua/locator/icons.lua` holds no icon data: it resolves `keystone.icons` lazily
+on first use and forwards to it; without keystone.nvim installed, `get_icon`
+returns `nil` and rows render without an icon. This keeps locator free of hard
+plugin dependencies without duplicating keystone's icon table.
+
+## Coding style
+
+- Add Lua annotations (`---@param`, `---@return`, `---@class`, …) wherever
+  possible.
+- **Class-based modules** are named in PascalCase; **functional modules** in
+  snake_case.
+- Module-scope `local` variables are `_`-prefixed, except: a module name from
+  `require()`, the conventional `M` module table, and class types (`MyType`).
+- Function-local variables are **not** `_`-prefixed.
+- Inside a class, private members are `_`-prefixed.
+- Avoid `pcall()` when it isn't required.
