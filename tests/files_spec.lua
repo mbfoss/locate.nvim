@@ -1,4 +1,4 @@
-local files = require("ezpick.pickers.files")
+local files = require("locate.pickers.files")
 
 local resolve_case = files._resolve_case
 local resolve_mode = files._resolve_mode
@@ -72,7 +72,7 @@ describe("do_match (inpath)", function()
     it("highlights over the path, so the row can drop its directory prefix", function()
         local res = do_match("foo.lua", "src/foo.lua", "src", "fixed", false, nil, true)
         assert.not_nil(res)
-        assert.are.same({ { "src", "EzPickMatch" }, { "/foo.lua" } }, res.chunks)
+        assert.are.same({ { "src", "LocateMatch" }, { "/foo.lua" } }, res.chunks)
     end)
 
     it("widens glob chunks to the path it already matched", function()

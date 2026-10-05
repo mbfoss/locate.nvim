@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
-# Generate doc/ezpick.txt from README.md with panvimdoc.
+# Generate doc/locate.txt from README.md with panvimdoc.
 #
-#   scripts/gendoc.sh           # rewrite doc/ezpick.txt and doc/tags
+#   scripts/gendoc.sh           # rewrite doc/locate.txt and doc/tags
 #   scripts/gendoc.sh --check   # exit 1 when the help file is out of date
 #
 # Markdown that has no place in a help file (badges, screenshots, links to
@@ -15,7 +15,7 @@
 # vimdoc-only comment, uncommented here on the way to panvimdoc:
 #
 #   <!-- vimdoc-only
-#   See |ezpick-configuration| for the full option list.
+#   See |locate-configuration| for the full option list.
 #   -->
 #
 # Needs pandoc (brew install pandoc). panvimdoc itself is fetched on first run
@@ -30,7 +30,7 @@ PANVIMDOC_COMMIT=662fb20304d20c539fb48a0bda628f5165507de7 # v4.0.1
 PANVIMDOC_URL=https://github.com/kdheepak/panvimdoc.git
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-project=ezpick
+project=locate
 description="A dependency-free fuzzy picker for Neovim"
 vimversion="Neovim >= 0.11"
 
@@ -67,7 +67,7 @@ else
 fi
 
 # Help tags come from a hidden comment at the end of a section heading. The
-# project name is prefixed automatically, so this yields *ezpick-sources*:
+# project name is prefixed automatically, so this yields *locate-sources*:
 #
 #   ## Custom sources <!-- tag: sources -->
 #

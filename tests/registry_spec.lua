@@ -1,4 +1,4 @@
-local registry = require("ezpick.registry")
+local registry = require("locate.registry")
 
 -- Sources are wired into the registry as functions, so a typo in a module path
 -- or a renamed spec builder only shows up when that source is first opened.
@@ -104,8 +104,8 @@ describe("registry.register", function()
 end)
 
 describe("ranking", function()
-    local rank_items  = require("ezpick.base.picker")._rank_items
-    local match_label = require("ezpick.base.pickertools").match_label
+    local rank_items  = require("locate.base.picker")._rank_items
+    local match_label = require("locate.base.pickertools").match_label
 
     ---@param items table[]
     ---@return string[]
@@ -155,7 +155,7 @@ describe("ranking", function()
 end)
 
 describe("initial cursor", function()
-    local resolve = require("ezpick.base.picker")._resolve_initial_cursor
+    local resolve = require("locate.base.picker")._resolve_initial_cursor
 
     local ITEMS = { { data = { name = "a" } }, { data = { name = "b" } }, { data = { name = "c" } } }
 
@@ -184,7 +184,7 @@ end)
 
 describe("initial cursor, per source", function()
     it("colorschemes opens on the scheme in use", function()
-        local spec = require("ezpick.pickers.colorschemes").spec()
+        local spec = require("locate.pickers.colorschemes").spec()
         local items
         spec.finder("", {}, FETCH_OPTS, function(new_items) items = new_items end)
 
@@ -199,7 +199,7 @@ describe("initial cursor, per source", function()
         vim.api.nvim_win_set_buf(0, bufnr)
         vim.api.nvim_win_set_cursor(0, { 3, 0 })
 
-        local spec = require("ezpick.pickers.lines").spec({ bufnr = bufnr })
+        local spec = require("locate.pickers.lines").spec({ bufnr = bufnr })
         local items
         spec.finder("", {}, FETCH_OPTS, function(new_items) items = new_items end)
 
@@ -215,7 +215,7 @@ describe("initial cursor, per source", function()
         end, { 1, 2, 3 }))
         vim.fn.setqflist({}, "r", { idx = 2 })
 
-        local spec = require("ezpick.pickers.qflist").spec({})
+        local spec = require("locate.pickers.qflist").spec({})
         local items
         spec.finder("", {}, FETCH_OPTS, function(new_items) items = new_items end)
 
@@ -229,7 +229,7 @@ describe("buffer_lines", function()
         vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "alpha", "", "   ", "beta" })
         vim.api.nvim_win_set_buf(0, bufnr)
 
-        local spec = require("ezpick.pickers.lines").spec({ bufnr = bufnr })
+        local spec = require("locate.pickers.lines").spec({ bufnr = bufnr })
         local items
         spec.finder("", {}, FETCH_OPTS, function(new_items) items = new_items end)
 
@@ -249,7 +249,7 @@ describe("registers", function()
         vim.fn.setreg("q", "")
         vim.fn.setreg("z", "picked up")
 
-        local spec = require("ezpick.pickers.registers").spec()
+        local spec = require("locate.pickers.registers").spec()
 
         local items
         spec.finder("picked", {}, FETCH_OPTS, function(new_items) items = new_items end)
@@ -265,7 +265,7 @@ describe("registers", function()
     it("renders multi-line contents on a single row", function()
         vim.fn.setreg("z", "one\ntwo", "V")
 
-        local spec = require("ezpick.pickers.registers").spec()
+        local spec = require("locate.pickers.registers").spec()
         local items
         spec.finder("", {}, FETCH_OPTS, function(new_items) items = new_items end)
 
@@ -292,7 +292,7 @@ describe("marks", function()
         vim.api.nvim_win_set_cursor(0, { 3, 0 })
         vim.cmd("normal! mZ")
 
-        local spec = require("ezpick.pickers.marks").spec()
+        local spec = require("locate.pickers.marks").spec()
 
         local locals, globals
         spec.finder("", { buffer = true }, FETCH_OPTS, function(items) locals = items end)
@@ -319,7 +319,7 @@ describe("marks", function()
 end)
 
 describe("colorschemes", function()
-    ---@param spec ezpick.PickerSpec
+    ---@param spec locate.PickerSpec
     ---@param name string
     local function preview(spec, name)
         spec.previewer({ name = name }, { viewport_width = 60, viewport_height = 20 }, function() end)
@@ -329,13 +329,13 @@ describe("colorschemes", function()
         vim.cmd("colorscheme habamax")
         local original = vim.g.colors_name
 
-        local spec = require("ezpick.pickers.colorschemes").spec()
+        local spec = require("locate.pickers.colorschemes").spec()
 
         preview(spec, "blue")
         assert.equals("blue", vim.g.colors_name)
         -- `:colorscheme` runs `:highlight clear`, so the picker's own groups have
         -- to be put back for the list to stay readable.
-        assert.is_true(next(vim.api.nvim_get_hl(0, { name = "EzPickMatch" })) ~= nil)
+        assert.is_true(next(vim.api.nvim_get_hl(0, { name = "LocateMatch" })) ~= nil)
 
         spec.on_confirm(nil)
         assert.equals(original, vim.g.colors_name)
@@ -348,7 +348,7 @@ describe("colorschemes", function()
     end)
 
     it("reports a broken colorscheme in the preview instead of throwing", function()
-        local spec = require("ezpick.pickers.colorschemes").spec()
+        local spec = require("locate.pickers.colorschemes").spec()
 
         local preview_data
         assert.has_no.errors(function()
@@ -364,7 +364,7 @@ describe("history", function()
         vim.fn.histadd("cmd", "Pick files")
         vim.fn.histadd("cmd", "Pick buffers")
 
-        local spec = require("ezpick.pickers.history").spec({ kind = "cmd" })
+        local spec = require("locate.pickers.history").spec({ kind = "cmd" })
         local items
         spec.finder("", {}, FETCH_OPTS, function(new_items) items = new_items end)
 

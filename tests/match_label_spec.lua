@@ -1,4 +1,4 @@
-local pickertools = require("ezpick.base.pickertools")
+local pickertools = require("locate.base.pickertools")
 
 local match = pickertools.match_label
 

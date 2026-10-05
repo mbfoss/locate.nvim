@@ -1,4 +1,4 @@
-local picker = require("ezpick.base.picker")
+local picker = require("locate.base.picker")
 
 local schema = {
     { name = "dir",   type = "value", values = { "lua", "tests", "with space" } },
@@ -39,7 +39,7 @@ describe("picker completefunc", function()
     before_each(function()
         buf = vim.api.nvim_create_buf(false, true)
         vim.api.nvim_win_set_buf(0, buf)
-        vim.b[buf].ezpick_completion = { flags = schema }
+        vim.b[buf].locate_completion = { flags = schema }
     end)
 
     it("completes flag names from the word being typed", function()

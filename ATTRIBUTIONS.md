@@ -11,18 +11,18 @@ Third-party projects this one uses or is based on. None are vendored.
 ## Runtime integrations (not bundled)
 
 - Icon providers: `nvim-web-devicons`, `keystone.nvim` or `mini.icons`,
-  whichever the user has installed (probed in that order). ezpick ships no icon
+  whichever the user has installed (probed in that order). locate ships no icon
   data of its own and requires no particular provider; see
-  `lua/ezpick/icons.lua`.
+  `lua/locate/icons.lua`.
 
-Where ezpick covers the same ground as an existing picker plugin, the
+Where locate covers the same ground as an existing picker plugin, the
 implementation was written for this plugin from Neovim's public API rather than
 adapted from that plugin's source.
 
 ## Development-time only (not distributed)
 
 - **[panvimdoc](https://github.com/kdheepak/panvimdoc)** (MIT): generates
-  `doc/ezpick.txt` from `README.md`; see `scripts/gendoc.sh`.
+  `doc/locate.txt` from `README.md`; see `scripts/gendoc.sh`.
 - **[busted](https://github.com/lunarmodules/busted)** and
   **[luassert](https://github.com/lunarmodules/luassert)** (MIT), and
   **[nlua](https://github.com/mfussenegger/nlua)** (GPL-3.0): the test

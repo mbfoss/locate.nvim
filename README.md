@@ -1,9 +1,9 @@
-# ezpick.nvim
+# locate.nvim
 
 A dependency-free fuzzy picker for Neovim.
 
 Built-in sources (files, live grep, buffers, LSP symbols and references,
-diagnostics, quickfix, keymaps, commands and more) behind a single `:Ezpick`
+diagnostics, quickfix, keymaps, commands and more) behind a single `:Locate`
 command. It can replace `vim.ui.select`, and other plugins can register their
 own sources.
 
@@ -15,15 +15,15 @@ own sources.
 
 ## Demo <!-- tag: demo -->
 
-`:Ezpick files`: a fuzzy query, `dir=` narrowing it, and the confirm that opens
+`:Locate files`: a fuzzy query, `dir=` narrowing it, and the confirm that opens
 the file:
 
-![files](https://raw.githubusercontent.com/mbfoss/ezpick.nvim/assets/files.gif)
+![files](https://raw.githubusercontent.com/mbfoss/locate.nvim/assets/files.gif)
 
 <details>
-<summary><code>:Ezpick live_grep</code>: a ripgrep query, <code>type=</code> and <code>filter=</code> narrowing it without touching the query, and the confirm that jumps to the match</summary>
+<summary><code>:Locate live_grep</code>: a ripgrep query, <code>type=</code> and <code>filter=</code> narrowing it without touching the query, and the confirm that jumps to the match</summary>
 
-![live_grep](https://raw.githubusercontent.com/mbfoss/ezpick.nvim/assets/live_grep.gif)
+![live_grep](https://raw.githubusercontent.com/mbfoss/locate.nvim/assets/live_grep.gif)
 
 </details>
 
@@ -35,25 +35,25 @@ the file:
 `:help vim.pack`):
 
 ```lua
-vim.pack.add({ "https://github.com/mbfoss/ezpick.nvim" })
+vim.pack.add({ "https://github.com/mbfoss/locate.nvim" })
 ```
 
-- `vim.pack.update()` updates it, `vim.pack.del({ "ezpick.nvim" })` removes it.
+- `vim.pack.update()` updates it, `vim.pack.del({ "locate.nvim" })` removes it.
 - On Neovim 0.11, use a plugin manager.
 
 **lazy.nvim**
 
 ```lua
-{ "mbfoss/ezpick.nvim" }
+{ "mbfoss/locate.nvim" }
 ```
 
 ## Configuring the picker <!-- tag: configuration -->
 
-`:Ezpick` and the highlight groups are registered by the plugin itself, so
+`:Locate` and the highlight groups are registered by the plugin itself, so
 `setup()` is only needed to change a default:
 
 ```lua
-require("ezpick").setup({
+require("locate").setup({
   -- Sizing, picked per source by whether it has a preview to show. The ratios
   -- are fractions of the editor the whole picker spans, borders and all.
   with_preview        = {
@@ -71,51 +71,51 @@ require("ezpick").setup({
 ```
 
 To use a shorter name such as `:Pick`, register an alias — it forwards its
-arguments and completion to `:Ezpick`:
+arguments and completion to `:Locate`:
 
 ```lua
-require("ezpick").create_cmd_alias("Pick")
+require("locate").create_cmd_alias("Pick")
 ```
 
 ## Health <!-- tag: health -->
 
 ```vim
-:checkhealth ezpick
+:checkhealth locate
 ```
 
 Reports:
 
-- whether `:Ezpick` is registered;
+- whether `:Locate` is registered;
 - the options that differ from the defaults;
-- as a warning, any option name ezpick does not define: `setup()` merges the
+- as a warning, any option name locate does not define: `setup()` merges the
   table wholesale, so a misspelled one would otherwise be accepted in silence.
 
 ## Using the picker <!-- tag: usage -->
 
-`:Ezpick` opens a source and completes both source names and their flags:
+`:Locate` opens a source and completes both source names and their flags:
 
 ```vim
-:Ezpick files
-:Ezpick live_grep
-:Ezpick buffers
+:Locate files
+:Locate live_grep
+:Locate buffers
 ```
 
 An extra argument seeds the initial query:
 
 ```vim
-:Ezpick live_grep TODO
+:Locate live_grep TODO
 ```
 
-With no argument, `:Ezpick` lists the available sources through
+With no argument, `:Locate` lists the available sources through
 `vim.ui.select`.
 
 ### vim.ui.select <!-- tag: ui-select -->
 
-`vim.ui.select` is a global other plugins may also want, so ezpick does not
+`vim.ui.select` is a global other plugins may also want, so locate does not
 take it over. Assign it yourself:
 
 ```lua
-vim.ui.select = require("ezpick.select")
+vim.ui.select = require("locate.select")
 ```
 
 ### Built-in sources <!-- tag: built-ins -->
@@ -231,13 +231,13 @@ naming no flag) all read the same way:
   moves on; away from the flags it shows at once, so a stopped search always
   says why.
 
-`:Ezpick` keeps the two apart the same way:
+`:Locate` keeps the two apart the same way:
 
 - A line opening on `--flags` reads everything up to the `--` that closes it as
   the flags, and the rest as the query:
 
   ```vim
-  :Ezpick files --flags dir=src hidden -- TODO
+  :Locate files --flags dir=src hidden -- TODO
   ```
 
 - A line opening on anything else is the query alone, so a query needs no
@@ -250,7 +250,7 @@ with it.
 ## Writing your own source <!-- tag: custom-sources -->
 
 ```lua
-require("ezpick").register("my_source", {
+require("locate").register("my_source", {
   prompt     = "My source",
   finder     = function(query, flags, fetch_opts, callback)
     callback({ { label_chunks = { { "an item" } }, data = { ... } } })
@@ -260,8 +260,8 @@ require("ezpick").register("my_source", {
 ```
 
 - The spec may also be a function returning a spec, built lazily on each open.
-- Every field: the `ezpick.PickerSpec` annotation in
-  [`lua/ezpick/init.lua`](lua/ezpick/init.lua).
+- Every field: the `locate.PickerSpec` annotation in
+  [`lua/locate/init.lua`](lua/locate/init.lua).
 
 Naming:
 
@@ -269,21 +269,21 @@ Naming:
   never overwrites: a taken name gets a counter appended (`files` → `files_2`),
   with a warning, and `register` returns the name actually used.
 - A name that could never be opened is an error rather than a warning: the
-  empty string, a name containing whitespace (`:Ezpick` splits its arguments on
-  it), and `resume` (handled by `:Ezpick` before the registry is consulted).
+  empty string, a name containing whitespace (`:Locate` splits its arguments on
+  it), and `resume` (handled by `:Locate` before the registry is consulted).
 
 ## Highlights <!-- tag: highlights -->
 
 | Group | Links to |
 | --- | --- |
-| `EzPickMatch` | `Visual` |
-| `EzPickPath` | `@namespace` |
-| `EzPickBufferIndicator` | `Special` |
-| `EzPickFlagPill` | `Visual` |
-| `EzPickFlagPillEdge` | derived: the background of `EzPickFlagPill` |
+| `LocateMatch` | `Visual` |
+| `LocatePath` | `@namespace` |
+| `LocateBufferIndicator` | `Special` |
+| `LocateFlagPill` | `Visual` |
+| `LocateFlagPillEdge` | derived: the background of `LocateFlagPill` |
 
 Filetype icons in `files` and `config_files` come from whichever icon provider
-is installed. ezpick ships no icon data and tries, in order, `nvim-web-icon`,
+is installed. locate ships no icon data and tries, in order, `nvim-web-icon`,
 [keystone.nvim](https://github.com/mbfoss/keystone.nvim) (`keystone.icons`) and
 [mini.icons](https://github.com/echasnovski/mini.icons); the first found is
 used, each icon highlighted with the group its provider returns. With none

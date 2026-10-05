@@ -1,4 +1,4 @@
-local pickertools = require("ezpick.base.pickertools")
+local pickertools = require("locate.base.pickertools")
 
 --- Single-pattern shorthand: the pattern semantics are the same whether a glob
 --- arrives alone or in a list.
@@ -14,7 +14,7 @@ describe("match_globs basename patterns (no slash)", function()
     it("matches a basename glob at any depth", function()
         assert.is_true(match("*.txt", "foo.txt"))
         assert.is_true(match("*.txt", "a/b/foo.txt"))
-        assert.is_true(match("*.lua", "lua/ezpick/util/foo.lua"))
+        assert.is_true(match("*.lua", "lua/locate/util/foo.lua"))
     end)
 
     it("anchors the extension", function()

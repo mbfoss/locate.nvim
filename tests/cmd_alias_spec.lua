@@ -1,10 +1,10 @@
 ---@diagnostic disable: undefined-global
--- Unit tests for `ezpick.create_cmd_alias`: the alias must be an `:Ezpick` in
+-- Unit tests for `locate.create_cmd_alias`: the alias must be an `:Locate` in
 -- every way that matters -- same arguments as typed, same completion, same
--- refusal to take a name already in use -- without `ezpick.cmdline` loading
+-- refusal to take a name already in use -- without `locate.cmdline` loading
 -- until the alias is actually used.
 
-local ezpick = require("ezpick")
+local locate = require("locate")
 
 -- Every case registers its own name, so the file is order-independent.
 local n = 0
@@ -14,7 +14,7 @@ local n = 0
 local function alias()
     n = n + 1
     local name = ("PickAlias%d"):format(n)
-    assert.is_true(ezpick.create_cmd_alias(name))
+    assert.is_true(locate.create_cmd_alias(name))
     return name
 end
 
@@ -50,13 +50,13 @@ describe("create_cmd_alias", function()
         local cmd = vim.api.nvim_get_commands({})[name]
         assert.are.equal("*", cmd.nargs)
         assert.is_nil(cmd.range)
-        assert.is_truthy(cmd.definition:find("alias for :Ezpick", 1, true))
+        assert.is_truthy(cmd.definition:find("alias for :Locate", 1, true))
     end)
 
     it("forwards the line as typed, escapes intact", function()
         local name = alias()
         local cap = {}
-        stubbed("ezpick.cmdline", { run = function(o) cap = o end }, function()
+        stubbed("locate.cmdline", { run = function(o) cap = o end }, function()
             vim.cmd(name .. [[ files dir=my\ src]])
         end)
         assert.are.equal("files dir=my\\ src", cap.args)
@@ -66,7 +66,7 @@ describe("create_cmd_alias", function()
     it("delegates completion with the alias's own line", function()
         local name = alias()
         local got
-        stubbed("ezpick.cmdline", {
+        stubbed("locate.cmdline", {
             complete = function(a, l, c) got = { a, l, c }; return { "stub" } end,
         }, function()
             local line = name .. " files "
@@ -76,31 +76,31 @@ describe("create_cmd_alias", function()
     end)
 
     it("loads nothing when it registers", function()
-        local real = package.loaded["ezpick.cmdline"]
-        package.loaded["ezpick.cmdline"] = nil
+        local real = package.loaded["locate.cmdline"]
+        package.loaded["locate.cmdline"] = nil
         alias()
-        local loaded = package.loaded["ezpick.cmdline"] ~= nil
-        package.loaded["ezpick.cmdline"] = real
+        local loaded = package.loaded["locate.cmdline"] ~= nil
+        package.loaded["locate.cmdline"] = real
         assert.is_false(loaded)
     end)
 
     it("leaves a name that is already taken alone", function()
         local name = alias()
         local notes = notified(function()
-            assert.is_false(ezpick.create_cmd_alias(name))
+            assert.is_false(locate.create_cmd_alias(name))
         end)
         assert.are.same(
-            { ("[ezpick] :%s is already taken, so no alias was created"):format(name) }, notes)
+            { ("[locate] :%s is already taken, so no alias was created"):format(name) }, notes)
     end)
 
     it("leaves the command's own name alone", function()
         notified(function()
-            assert.is_false(ezpick.create_cmd_alias("Ezpick"))
+            assert.is_false(locate.create_cmd_alias("Locate"))
         end)
     end)
 
     it("refuses a name that cannot be a user command", function()
-        assert.has_error(function() ezpick.create_cmd_alias("pick") end)
-        assert.has_error(function() ezpick.create_cmd_alias(nil) end)
+        assert.has_error(function() locate.create_cmd_alias("pick") end)
+        assert.has_error(function() locate.create_cmd_alias(nil) end)
     end)
 end)

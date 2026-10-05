@@ -1,4 +1,4 @@
-local qf = require("ezpick.base.queryflags")
+local qf = require("locate.base.queryflags")
 
 local schema = {
     { name = "path",      type = "value", values = { "foo", "foo bar", "baz" } },
@@ -22,9 +22,9 @@ local _KIND = {
     ["unexpected-value"] = " takes no value$",
 }
 
----@param result ezpick.queryflags.ParseResult
+---@param result locate.queryflags.ParseResult
 ---@param kind   string  -- a key of `_KIND`
----@return ezpick.queryflags.Error?
+---@return locate.queryflags.Error?
 local function error_of(result, kind)
     local pat = assert(_KIND[kind])
     for _, h in ipairs(result.errors) do
@@ -33,9 +33,9 @@ local function error_of(result, kind)
     return nil
 end
 
----@param result ezpick.queryflags.ParseResult
+---@param result locate.queryflags.ParseResult
 ---@param kind   string  -- a key of `_KIND`
----@return ezpick.queryflags.Error[]  -- in the order parse sorted them, left to right
+---@return locate.queryflags.Error[]  -- in the order parse sorted them, left to right
 local function errors_of(result, kind)
     local pat = assert(_KIND[kind])
     local found = {}

@@ -1,10 +1,10 @@
 # Development
 
-Technical notes for working on ezpick.nvim.
+Technical notes for working on locate.nvim.
 
 ## Requirements
 
-- Neovim ≥ 0.11 (enforced at load time in [`plugin/ezpick.lua`](plugin/ezpick.lua))
+- Neovim ≥ 0.11 (enforced at load time in [`plugin/locate.lua`](plugin/locate.lua))
 - [busted](https://lunarmodules.github.io/busted/) for the test suite,
   installed for Lua 5.1 (see below)
 - [ripgrep](https://github.com/BurntSushi/ripgrep) for the `files` and
@@ -36,15 +36,15 @@ make test BUSTED_ARGS=tests/registry_spec.lua
 ## Architecture
 
 ```
-plugin/ezpick.lua        Neovim version guard, `:Ezpick`, highlight groups (loaded on startup)
-lua/ezpick/init.lua      public API: setup, pick, register, resume
-lua/ezpick/cmdline.lua   `:Ezpick` argument parsing and completion
-lua/ezpick/registry.lua  name -> spec table for the built-in sources
-lua/ezpick/select.lua    vim.ui.select implementation
-lua/ezpick/base/         the picker engine
-lua/ezpick/pickers/      one file per built-in source
-lua/ezpick/icons.lua     filetype icons (optional, via keystone.nvim)
-lua/ezpick/util/         shared low-level toolkit (see below)
+plugin/locate.lua        Neovim version guard, `:Locate`, highlight groups (loaded on startup)
+lua/locate/init.lua      public API: setup, pick, register, resume
+lua/locate/cmdline.lua   `:Locate` argument parsing and completion
+lua/locate/registry.lua  name -> spec table for the built-in sources
+lua/locate/select.lua    vim.ui.select implementation
+lua/locate/base/         the picker engine
+lua/locate/pickers/      one file per built-in source
+lua/locate/icons.lua     filetype icons (optional, via keystone.nvim)
+lua/locate/util/         shared low-level toolkit (see below)
 tests/                   busted specs
 ```
 
@@ -60,7 +60,7 @@ fetch loop. Everything user-visible happens here.
 - `file_preview` / `buffer_preview` loaders; the latter previews `data.bufnr`
   when that buffer is loaded and falls back to the file on disk;
 - `make_history_provider`, persisting per-source query history under
-  `stdpath("state")/ezpick/pickhist.<name>.json`.
+  `stdpath("state")/locate/pickhist.<name>.json`.
 
 **`queryflags.lua`**: reads a flags line (`switch`, `key=value`,
 `key=one,two`) and drives flag completion.
@@ -71,7 +71,7 @@ fetch loop. Everything user-visible happens here.
   mistake.
 - Everything outside the prompt keeps the two apart too: `Picker.initial_flags`
   beside `initial_query`, `on_close(query, flag_text, index)`,
-  `:Ezpick --flags … --` beside the query that runs on after it, and the query
+  `:Locate --flags … --` beside the query that runs on after it, and the query
   history, which `_encode_history` writes as JSON `{q=..,f=..}` once a flagged
   entry needs it and as the plain query otherwise.
 - `\` escaping is local to a value and follows `:h <f-args>` plus the list
@@ -99,14 +99,14 @@ out of the list's share, never past an even split with it.
 
 ### Sources
 
-A source is an `ezpick.PickerSpec`: a `prompt`, a `finder` turning (query,
+A source is an `locate.PickerSpec`: a `prompt`, a `finder` turning (query,
 flags) into items, an `on_confirm`, and optional `flags`, `previewer`, `setup`
 and `quickfix_formatter`.
 
 - Nothing about a source is special-cased by the engine: the built-ins in
-  [`lua/ezpick/pickers/`](lua/ezpick/pickers/) use exactly the interface
-  anything registered with `require("ezpick").register` uses.
-- [`registry.lua`](lua/ezpick/registry.lua) maps each built-in name to a
+  [`lua/locate/pickers/`](lua/locate/pickers/) use exactly the interface
+  anything registered with `require("locate").register` uses.
+- [`registry.lua`](lua/locate/registry.lua) maps each built-in name to a
   *function* returning its spec, so a source's module is `require`d only the
   first time it is opened. Keep `setup()` cheap and defer heavy work to first
   use.
@@ -158,7 +158,7 @@ Other source behaviours:
 
 ### Shared toolkit (`util`)
 
-[`lua/ezpick/util/`](lua/ezpick/util/) holds the low-level primitives the
+[`lua/locate/util/`](lua/locate/util/) holds the low-level primitives the
 picker builds on: `Spinner`, `floatwin`, `fsutil`, `spawn`, `strutil`, `timer`
 and `ui`. These are plugin-agnostic on purpose, knowing nothing about pickers,
 so prefer extending `util` over duplicating window, filesystem or process
@@ -166,19 +166,19 @@ plumbing inside a source.
 
 ### Icons
 
-`lua/ezpick/icons.lua` holds no icon data: it resolves `keystone.icons` lazily
+`lua/locate/icons.lua` holds no icon data: it resolves `keystone.icons` lazily
 on first use and forwards to it; without keystone.nvim installed, `get_icon`
-returns `nil` and rows render without an icon. This keeps ezpick free of hard
+returns `nil` and rows render without an icon. This keeps locate free of hard
 plugin dependencies without duplicating keystone's icon table.
 
 ## Help file
 
-[`doc/ezpick.txt`](doc/ezpick.txt) is generated from [`README.md`](README.md)
+[`doc/locate.txt`](doc/locate.txt) is generated from [`README.md`](README.md)
 with [panvimdoc](https://github.com/kdheepak/panvimdoc), pinned to a commit in
 the script. `doc/tags` is refreshed with `:helptags`.
 
 ```bash
-make doc          # rewrite doc/ezpick.txt and doc/tags
+make doc          # rewrite doc/locate.txt and doc/tags
 make doc_check    # exit 1 when the help file is out of date
 ```
 
@@ -189,11 +189,11 @@ heading can be renamed without breaking `:help` links:
 ## Writing your own source <!-- tag: custom-sources -->
 ```
 
-- The `ezpick-` prefix is added automatically, so that yields
-  `*ezpick-custom-sources*`.
+- The `locate-` prefix is added automatically, so that yields
+  `*locate-custom-sources*`.
 - The comment is stripped before panvimdoc runs and never renders on GitHub.
 - A heading without one keeps panvimdoc's derived tag
-  (`ezpick-<heading, lowercased, spaces to dashes>`).
+  (`locate-<heading, lowercased, spaces to dashes>`).
 - Tags are limited to `[A-Za-z0-9_-]`; anything else fails the build.
 
 ## Coding style

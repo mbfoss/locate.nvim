@@ -1,9 +1,9 @@
-local ezpick = require("ezpick")
-local picker = require("ezpick.base.picker")
+local locate = require("locate")
+local picker = require("locate.base.picker")
 
 local seen = {}
 
-local source = ezpick.register("pick_cmd_spec", {
+local source = locate.register("pick_cmd_spec", {
     prompt     = "Args",
     flags      = {
         { name = "dir",    type = "value" },
@@ -16,14 +16,14 @@ local source = ezpick.register("pick_cmd_spec", {
     on_confirm = function() end,
 })
 
-describe(":Ezpick arguments", function()
+describe(":Locate arguments", function()
     after_each(function() vim.cmd("silent! close!") end)
 
-    ---Run `:Ezpick` and report the two prompt sections it opened on.
+    ---Run `:Locate` and report the two prompt sections it opened on.
     ---@param args string
     ---@return string flag_text, string query
     local function run(args)
-        vim.cmd(("Ezpick %s %s"):format(source, args))
+        vim.cmd(("Locate %s %s"):format(source, args))
         vim.wait(100)
         local p = assert(picker._active())
         return p.flag_text, p.query_text
@@ -61,7 +61,7 @@ describe(":Ezpick arguments", function()
     end)
 
     it("opens on nothing at all with no arguments", function()
-        vim.cmd("Ezpick " .. source)
+        vim.cmd("Locate " .. source)
         vim.wait(100)
         local p = assert(picker._active())
         assert.are.equal("", p.flag_text)
@@ -91,14 +91,14 @@ describe(":Ezpick arguments", function()
     end)
 
     it("completes --flags, then the source's flags behind it", function()
-        local cmdline = require("ezpick.cmdline")
+        local cmdline = require("locate.cmdline")
         ---@param line string
         ---@return string[]
         local function complete(line)
             return cmdline.complete(line:match("(%S*)$"), line, #line)
         end
 
-        local line = ("Ezpick %s "):format(source)
+        local line = ("Locate %s "):format(source)
         assert.are.same({ "--flags" }, complete(line))
         assert.are.same({ "--flags" }, complete(line .. "--"))
         assert.are.same({ "--flags" }, complete(line .. "--fla"))
