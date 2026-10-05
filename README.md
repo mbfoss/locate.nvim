@@ -1,5 +1,10 @@
 # locate.nvim
 
+> [!NOTE]
+> **Work in progress.** Stable and usable as it stands, but still evolving:
+> changes, including breaking ones, can land at any time. Pin a commit if you
+> need a fixed target.
+
 A dependency-free fuzzy picker for Neovim.
 
 Built-in sources (files, live grep, buffers, LSP symbols and references,
