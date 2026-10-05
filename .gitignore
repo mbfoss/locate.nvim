@@ -1,0 +1,5 @@
+/.luarocks
+/demo
+.ndebug.json
+.luarc.json
+.DS_Store
