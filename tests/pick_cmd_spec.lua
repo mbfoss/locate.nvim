@@ -26,7 +26,7 @@ describe(":Locate arguments", function()
         vim.cmd(("Locate %s %s"):format(source, args))
         vim.wait(100)
         local p = assert(picker._active())
-        return p.flag_text, p.query_text
+        return p._flag_text, p._query_text
     end
 
     it("reads the flags between --flags and --", function()
@@ -64,8 +64,8 @@ describe(":Locate arguments", function()
         vim.cmd("Locate " .. source)
         vim.wait(100)
         local p = assert(picker._active())
-        assert.are.equal("", p.flag_text)
-        assert.are.equal("", p.query_text)
+        assert.are.equal("", p._flag_text)
+        assert.are.equal("", p._query_text)
     end)
 
     it("opens the query at a --", function()

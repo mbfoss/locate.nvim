@@ -321,17 +321,19 @@ end)
 describe("colorschemes", function()
     ---@param spec locate.PickerSpec
     ---@param name string
-    local function preview(spec, name)
-        spec.previewer({ name = name }, { viewport_width = 60, viewport_height = 20 }, function() end)
+    local function browse(spec, name)
+        spec.on_cursor({ name = name })
     end
 
-    it("applies while previewing, restores when dismissed, keeps the choice on confirm", function()
+    it("applies while browsing, restores when dismissed, keeps the choice on confirm", function()
         vim.cmd("colorscheme habamax")
         local original = vim.g.colors_name
 
         local spec = require("locate.pickers.colorschemes").spec()
+        -- No previewer: the scheme is its own preview, applied outright.
+        assert.is_nil(spec.previewer)
 
-        preview(spec, "blue")
+        browse(spec, "blue")
         assert.equals("blue", vim.g.colors_name)
         -- `:colorscheme` runs `:highlight clear`, so the picker's own groups have
         -- to be put back for the list to stay readable.
@@ -340,22 +342,24 @@ describe("colorschemes", function()
         spec.on_confirm(nil)
         assert.equals(original, vim.g.colors_name)
 
-        preview(spec, "blue")
+        browse(spec, "blue")
         spec.on_confirm({ name = "blue" })
         assert.equals("blue", vim.g.colors_name)
 
         vim.cmd("colorscheme " .. original)
     end)
 
-    it("reports a broken colorscheme in the preview instead of throwing", function()
+    it("reports a broken colorscheme instead of throwing", function()
         local spec = require("locate.pickers.colorschemes").spec()
 
-        local preview_data
+        local notified
+        local notify = vim.notify
+        vim.notify = function(msg) notified = msg end
         assert.has_no.errors(function()
-            spec.previewer({ name = "no_such_colorscheme" }, { viewport_width = 60, viewport_height = 20 },
-                function(data) preview_data = data end)
+            browse(spec, "no_such_colorscheme")
         end)
-        assert.is_not_nil(preview_data.error_msg)
+        vim.notify = notify
+        assert.is_not_nil(notified)
     end)
 end)
 

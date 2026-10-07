@@ -113,6 +113,7 @@ local _FLAGS_LABEL = "Flags"
 ---@field finder locate.Picker.Finder?
 ---@field enable_preview boolean?
 ---@field previewer locate.Picker.AsyncPreviewLoader?
+---@field on_cursor fun(data:locate.picker.ItemData)? Called with an item's data when the highlight moves onto it, whether the user stepped onto it or a narrower query left it on top. Not called for the row the picker opens on: the picker chose that one, not the user.
 ---@field history_provider locate.Picker.QueryHistoryProvider?
 ---@field quickfix_formatter (fun(data:any):vim.quickfix.entry?)?
 ---@field layout locate.Picker.LayoutKind? Arrangement of list and preview (default "horizontal").
@@ -482,34 +483,34 @@ end
 ---@field new fun(self: locate.util.Picker,opts:locate.Picker.opts,callback:locate.Picker.Callback) : locate.util.Picker
 ---@field opts locate.Picker.opts
 ---@field callback locate.Picker.Callback
----@field preview_enabled boolean
----@field layout locate.Picker.Layout
----@field pbuf integer?
----@field lbuf integer?
----@field vbuf integer?
----@field pwin integer?
----@field lwin integer?
----@field vwin integer?
----@field pwin_augroup number?
----@field spinner locate.util.Spinner?
+---@field _preview_enabled boolean
+---@field _layout locate.Picker.Layout
+---@field _pbuf integer?
+---@field _lbuf integer?
+---@field _vbuf integer?
+---@field _pwin integer?
+---@field _lwin integer?
+---@field _vwin integer?
+---@field _pwin_augroup number?
+---@field _spinner locate.util.Spinner?
 ---@field _spinner_delay_timer table? -- pending timer that would start the spinner, nil once it has fired or been cancelled
----@field closed boolean
----@field list_items locate.picker.ListItem[]
----@field async_fetch_context number
----@field async_fetch_cancel fun()?
----@field async_preview_context number
----@field async_preview_cancel fun()?
+---@field _closed boolean
+---@field _list_items locate.picker.ListItem[]
+---@field _async_fetch_context number
+---@field _async_fetch_cancel fun()?
+---@field _async_preview_context number
+---@field _async_preview_cancel fun()?
 ---@field _preview_external_buf integer?
----@field preview_timer table?
----@field query_text string
----@field flag_text string -- the flags section, held apart from the query
----@field mode "query"|"flags" -- which of the two the prompt line is editing
+---@field _preview_timer table?
+---@field _query_text string
+---@field _flag_text string -- the flags section, held apart from the query
+---@field _mode "query"|"flags" -- which of the two the prompt line is editing
 ---@field _query_col integer? -- prompt cursor column held while the flags section is edited
 ---@field _flag_col integer? -- prompt cursor column held while the query section is edited
----@field original_cword string
----@field history string[]
----@field history_idx number
----@field history_saved_entry string?
+---@field _original_cword string
+---@field _history string[]
+---@field _history_idx number
+---@field _history_saved_entry string?
 ---@field _set_init_cursor boolean
 ---@field _last_clean_query string?
 ---@field _last_flags table?
@@ -519,6 +520,7 @@ end
 ---@field _spinner_frame string? -- spinner frame currently drawn on the prompt line, nil when idle
 ---@field _prompt_wrapped integer -- screen lines the prompt took when the picker was last laid out
 ---@field _vline_row integer? -- list row whose virtual line currently carries the cursor-line highlight
+---@field _cursor_row integer? -- list row the highlight was last on; nil once a fetch invalidates it, so whatever it lands on next counts as new
 local Picker = {}
 Picker.__index = Picker
 
@@ -538,55 +540,56 @@ function Picker:init(opts, callback)
 	self.opts.flags            = self.opts.flags or {}
 	self.callback              = callback
 
-	self.preview_enabled       = opts.enable_preview == true
+	self._preview_enabled       = opts.enable_preview == true
 
-	self.list_items            = {} ---@type locate.picker.ListItem[]
+	self._list_items            = {} ---@type locate.picker.ListItem[]
 
 	self._vline_row            = nil
+	self._cursor_row           = nil
 
 	self._prompt_wrapped       = 1
 
-	self.closed                = false
+	self._closed                = false
 
-	self.async_fetch_context   = 0
-	self.async_fetch_cancel    = nil
+	self._async_fetch_context   = 0
+	self._async_fetch_cancel    = nil
 
 	self._set_init_cursor      = true
 
-	self.async_preview_context = 0
-	self.async_preview_cancel  = nil
+	self._async_preview_context = 0
+	self._async_preview_cancel  = nil
 
-	self.spinner               = nil
+	self._spinner               = nil
 	self._spinner_frame        = nil
 
-	self.query_text            = ""
-	self.flag_text             = ""
-	self.mode                  = "query"
+	self._query_text            = ""
+	self._flag_text             = ""
+	self._mode                  = "query"
 	self._query_col            = nil
 	self._flag_col             = nil
 
-	self.history               = {}
-	self.history_idx           = 0
-	self.history_saved_entry   = nil
+	self._history               = {}
+	self._history_idx           = 0
+	self._history_saved_entry   = nil
 
 	if self.opts.history_provider then
-		self.history = self.opts.history_provider.load() or {}
-		self.history_idx = #self.history + 1
+		self._history = self.opts.history_provider.load() or {}
+		self._history_idx = #self._history + 1
 	end
 
 	-- Load-bearing pcall: `expand` throws E348 when there is no word under the
 	-- cursor, which is the ordinary state of a blank line. It only returns a
 	-- list when asked to, which this is not, hence the cast.
 	local ok, cword     = pcall(vim.fn.expand, "<cword>")
-	self.original_cword = (ok and cword or "") --[[@as string]]
+	self._original_cword = (ok and cword or "") --[[@as string]]
 
 	_active_picker      = self
 
 	self:setup_ui()
 	self:setup_input()
 
-	assert(self.pwin)
-	vim.api.nvim_set_current_win(self.pwin)
+	assert(self._pwin)
+	vim.api.nvim_set_current_win(self._pwin)
 
 	-- Draws the prefix and arms completion for the section being edited.
 	self:_set_mode("query")
@@ -601,22 +604,22 @@ function Picker:init(opts, callback)
 	vim.schedule(function()
 		-- Anything closing the picker within the same tick leaves the focus on a
 		-- normal buffer, and starting insert there is the user's file, not a prompt.
-		if self.closed then return end
+		if self._closed then return end
 		vim.cmd("startinsert!")
 	end)
 end
 
 function Picker:apply_prompt()
-	if self.closed then return end
+	if self._closed then return end
 	-- A multi-line paste is flattened onto the one line the prompt has
-	local nlines = vim.api.nvim_buf_line_count(self.pbuf)
-	local lines = vim.api.nvim_buf_get_lines(self.pbuf, 0, -1, false)
+	local nlines = vim.api.nvim_buf_line_count(self._pbuf)
+	local lines = vim.api.nvim_buf_get_lines(self._pbuf, 0, -1, false)
 	local raw = lines[1] or ""
 	local text = raw:gsub("[%c]", "")
 	if nlines > 1 or text ~= raw then
-		local col = vim.api.nvim_win_get_cursor(self.pwin)[2]
-		vim.api.nvim_buf_set_lines(self.pbuf, 0, -1, false, { text })
-		vim.api.nvim_win_set_cursor(self.pwin, { 1, math.min(col, #text) })
+		local col = vim.api.nvim_win_get_cursor(self._pwin)[2]
+		vim.api.nvim_buf_set_lines(self._pbuf, 0, -1, false, { text })
+		vim.api.nvim_win_set_cursor(self._pwin, { 1, math.min(col, #text) })
 	end
 	-- Before the fetch: the query just typed may have wrapped onto another line,
 	-- and the list is laid out again to make room for it. `render_prompt_highlight`
@@ -625,10 +628,10 @@ function Picker:apply_prompt()
 	self:_sync_prompt_height()
 
 	if text == self:_mode_text() then return end
-	if self.mode == "flags" then
-		self.flag_text = text
+	if self._mode == "flags" then
+		self._flag_text = text
 	else
-		self.query_text = text
+		self._query_text = text
 	end
 	self:render_prompt_highlight()
 	self:run_fetch()
@@ -637,7 +640,7 @@ end
 ---Text of the section the prompt line is editing.
 ---@return string
 function Picker:_mode_text()
-	return self.mode == "flags" and self.flag_text or self.query_text
+	return self._mode == "flags" and self._flag_text or self._query_text
 end
 
 ---First column the cursor can hold without being drawn over the inline prefix:
@@ -658,7 +661,7 @@ end
 ---@return integer
 function Picker:_mode_col(text)
 	local col ---@type integer?
-	if self.mode == "flags" then
+	if self._mode == "flags" then
 		col = self._flag_col
 	else
 		col = self._query_col
@@ -675,19 +678,19 @@ end
 ---cursor is drawn on the prefix instead of on the line.
 ---@return nil
 function Picker:_nudge_off_prefix()
-	if self.closed or not self.pwin then return end
+	if self._closed or not self._pwin then return end
 	if vim.api.nvim_get_mode().mode:sub(1, 1) == "i" then return end
-	local col = vim.api.nvim_win_get_cursor(self.pwin)[2]
+	local col = vim.api.nvim_win_get_cursor(self._pwin)[2]
 	if col > 0 then return end
-	local text = vim.api.nvim_buf_get_lines(self.pbuf, 0, 1, false)[1] or ""
+	local text = vim.api.nvim_buf_get_lines(self._pbuf, 0, 1, false)[1] or ""
 	local min  = self:_min_col(text)
-	if min > 0 then vim.api.nvim_win_set_cursor(self.pwin, { 1, min }) end
+	if min > 0 then vim.api.nvim_win_set_cursor(self._pwin, { 1, min }) end
 end
 
 ---Both sections, as everything outside the prompt speaks of them.
 ---@return string query, string flag_text
 function Picker:_prompt_state()
-	return self.query_text, self.flag_text
+	return self._query_text, self._flag_text
 end
 
 ---Whether the character just typed ended the token before it and opened a new
@@ -710,10 +713,10 @@ end
 --- separator that opens the next one.
 ---@return nil
 function Picker:maybe_autocomplete()
-	if self.closed or self.opts.auto_complete_flags == false then return end
-	if self.mode ~= "flags" then return end
+	if self._closed or self.opts.auto_complete_flags == false then return end
+	if self._mode ~= "flags" then return end
 	if vim.fn.pumvisible() == 1 then return end
-	if vim.api.nvim_get_current_buf() ~= self.pbuf then return end
+	if vim.api.nvim_get_current_buf() ~= self._pbuf then return end
 	if vim.api.nvim_get_mode().mode:sub(1, 1) ~= "i" then return end
 
 	local flags = self.opts.flags
@@ -742,7 +745,7 @@ function Picker:setup_ui()
 	self:_create_windows()
 	self:relayout()
 
-	assert(self.pbuf ~= nil)
+	assert(self._pbuf ~= nil)
 	-- Expose flag completion on the prompt buffer so <C-x><C-o>, <C-x><C-u>, or any
 	-- completion engine on this buffer can drive it. The flag schema is stashed on the
 	-- buffer once here; the function computes candidates live from it, needing no picker
@@ -756,12 +759,12 @@ function Picker:setup_ui()
 	-- Omni completion accepts any printable non-blank character, which is exactly
 	-- the alphabet of a flag.
 	local completefunc                 = "v:lua.require'locate.base.picker'._flag_completefunc"
-	vim.bo[self.pbuf].omnifunc         = completefunc
-	vim.bo[self.pbuf].completefunc     = completefunc
-	vim.b[self.pbuf].locate_completion = { flags = self.opts.flags }
+	vim.bo[self._pbuf].omnifunc         = completefunc
+	vim.bo[self._pbuf].completefunc     = completefunc
+	vim.b[self._pbuf].locate_completion = { flags = self.opts.flags }
 	-- Hook into CompleteDone to restore highlights and trigger a fetch update
 	vim.api.nvim_create_autocmd("CompleteDone", {
-		buffer = self.pbuf,
+		buffer = self._pbuf,
 		callback = function()
 			-- Accepting an item fires TextChangedI; suppress its auto-trigger.
 			-- A menu dismissed by a keystroke it cannot complete on (a space
@@ -775,10 +778,10 @@ function Picker:setup_ui()
 	})
 	vim.keymap.set("i", "<C-r><C-w>", function()
 		vim.api.nvim_feedkeys(
-			vim.api.nvim_replace_termcodes(self.original_cword, true, false, true),
+			vim.api.nvim_replace_termcodes(self._original_cword, true, false, true),
 			"i", false
 		)
-	end, { buffer = self.pbuf, desc = "Paste original <cword>" })
+	end, { buffer = self._pbuf, desc = "Paste original <cword>" })
 end
 
 ---Screen lines the query takes, wrapped to the prompt's current width. Neovim
@@ -790,10 +793,10 @@ end
 ---row is the one being typed into, so the prompt is given it.
 ---@return integer
 function Picker:_prompt_text_height()
-	if not self.pwin or not vim.api.nvim_win_is_valid(self.pwin) then return 1 end
-	local height = vim.api.nvim_win_text_height(self.pwin, {}).all
-	local width = vim.api.nvim_win_get_width(self.pwin)
-	local line = vim.api.nvim_buf_get_lines(self.pbuf, 0, 1, false)[1] or ""
+	if not self._pwin or not vim.api.nvim_win_is_valid(self._pwin) then return 1 end
+	local height = vim.api.nvim_win_text_height(self._pwin, {}).all
+	local width = vim.api.nvim_win_get_width(self._pwin)
+	local line = vim.api.nvim_buf_get_lines(self._pbuf, 0, 1, false)[1] or ""
 	-- The prefix is inline virtual text: drawn on the line, absent from it.
 	local drawn = self:_prefix_width() + vim.fn.strdisplaywidth(line)
 	local last = drawn % width
@@ -805,7 +808,7 @@ end
 ---same way costs nothing but the measurement.
 ---@return nil
 function Picker:_sync_prompt_height()
-	if self.closed or not self.layout then return end
+	if self._closed or not self._layout then return end
 	-- `relayout` dismisses the completion menu to move the floats out from under
 	-- it. Growing the prompt is not worth that mid-completion; `CompleteDone`
 	-- runs `apply_prompt` and the resize lands then.
@@ -821,7 +824,7 @@ end
 ---Take the picker down on the next tick, unless it is already going.
 ---@return nil
 function Picker:_close_soon()
-	if self.closed then return end
+	if self._closed then return end
 	vim.schedule(function() self:close() end)
 end
 
@@ -831,10 +834,10 @@ end
 ---@field list table
 ---@field preview table
 
----Build the float configs off `self.layout`.
+---Build the float configs off `self._layout`.
 ---@return locate.Picker.Cfgs
 function Picker:_float_cfgs()
-	local l = self.layout
+	local l = self._layout
 	local title = self.opts.prompt and (" " .. self.opts.prompt .. " ") or ""
 
 	-- The border is per float and comes from the layout: the prompt and the list
@@ -879,7 +882,7 @@ end
 ---@return locate.Picker.Layout
 function Picker:_build_layout(prompt_height)
 	return layouts.build(self.opts.layout, {
-		has_preview = self.preview_enabled,
+		has_preview = self._preview_enabled,
 		height_ratio = self.opts.height_ratio,
 		width_ratio = self.opts.width_ratio,
 		prompt_height = prompt_height,
@@ -891,35 +894,35 @@ end
 ---this leaves behind.
 ---@return nil
 function Picker:_create_windows()
-	assert(not self.pwin and not self.lwin and not self.vwin)
-	self.layout = self:_build_layout(1)
+	assert(not self._pwin and not self._lwin and not self._vwin)
+	self._layout = self:_build_layout(1)
 	local cfgs = self:_float_cfgs()
 
-	self.pbuf = _create_buffer(true, function()
-		self.pbuf = nil
+	self._pbuf = _create_buffer(true, function()
+		self._pbuf = nil
 		self:_close_soon()
 	end)
 	local pwin_augroup
-	self.pwin, pwin_augroup = ui.create_window(self.pbuf, true, cfgs.prompt, function()
-		self.pwin = nil
+	self._pwin, pwin_augroup = ui.create_window(self._pbuf, true, cfgs.prompt, function()
+		self._pwin = nil
 		self:_close_soon()
 	end)
-	vim.wo[self.pwin].winhighlight = _WINHL
+	vim.wo[self._pwin].winhighlight = _WINHL
 	-- A query longer than the frame is wrapped rather than scrolled sideways:
 	-- the float grows a line at a time to hold it, up to the even split with
 	-- the list that `layouts` caps it at.
-	vim.wo[self.pwin].wrap = true
+	vim.wo[self._pwin].wrap = true
 
 	assert(type(pwin_augroup) == "number")
-	self.pwin_augroup = pwin_augroup
+	self._pwin_augroup = pwin_augroup
 	vim.api.nvim_create_autocmd("WinEnter", {
 		group = pwin_augroup,
 		callback = function(_)
 			local win = vim.api.nvim_get_current_win()
-			assert(not self.closed)
+			assert(not self._closed)
 			local cfg = vim.api.nvim_win_get_config(win)
 			local is_float = cfg.relative and cfg.relative ~= ""
-			if not is_float and win ~= self.pwin and win ~= self.lwin and win ~= self.vwin then
+			if not is_float and win ~= self._pwin and win ~= self._lwin and win ~= self._vwin then
 				self:_close_soon()
 			end
 		end
@@ -927,48 +930,48 @@ function Picker:_create_windows()
 	vim.api.nvim_create_autocmd("VimResized", {
 		group = pwin_augroup,
 		callback = function()
-			assert(not self.closed)
+			assert(not self._closed)
 			vim.schedule(function()
 				self:relayout()
 			end)
 		end
 	})
 
-	self.lbuf = _create_buffer(false, function()
-		self.lbuf = nil
+	self._lbuf = _create_buffer(false, function()
+		self._lbuf = nil
 		self:_close_soon()
 	end)
-	self.lwin = ui.create_window(self.lbuf, false, cfgs.list, function()
-		self.lwin = nil
+	self._lwin = ui.create_window(self._lbuf, false, cfgs.list, function()
+		self._lwin = nil
 		self:_close_soon()
 	end)
-	vim.wo[self.lwin].winhighlight = _WINHL
-	vim.wo[self.lwin].wrap = self.opts.list_wrap ~= false
+	vim.wo[self._lwin].winhighlight = _WINHL
+	vim.wo[self._lwin].wrap = self.opts.list_wrap ~= false
 	-- `wbr` is what `%=` stretches across the winbar; `eob` comes with the
 	-- window's `style = "minimal"`, and setting 'fillchars' here drops it.
-	vim.wo[self.lwin].fillchars = "eob: ,wbr:" .. _RULE
-	vim.wo[self.lwin].winbar = self:_status_winbar()
+	vim.wo[self._lwin].fillchars = "eob: ,wbr:" .. _RULE
+	vim.wo[self._lwin].winbar = self:_status_winbar()
 	-- Indent wrapped list lines so continuations read as continuations: one
 	-- lines up under the label above it, not under the prefix that label
 	-- starts past.
-	vim.wo[self.lwin].breakindent = true
+	vim.wo[self._lwin].breakindent = true
 
-	if self.preview_enabled then
-		self.vbuf = _create_buffer(false, function() self.vbuf = nil end, "hide")
-		local vbuf_key_opts = _key_opts_of(self.vbuf)
+	if self._preview_enabled then
+		self._vbuf = _create_buffer(false, function() self._vbuf = nil end, "hide")
+		local vbuf_key_opts = _key_opts_of(self._vbuf)
 		vim.keymap.set("n", "<CR>", function() self:confirm() end, vbuf_key_opts)
 		vim.keymap.set("n", "<Esc>", function() self:close() end, vbuf_key_opts)
-		self.vwin = ui.create_window(self.vbuf, false, cfgs.preview, function()
-			self.vwin = nil
-			if self.vbuf then
-				vim.api.nvim_buf_delete(self.vbuf, { force = true })
-				self.vbuf = nil
+		self._vwin = ui.create_window(self._vbuf, false, cfgs.preview, function()
+			self._vwin = nil
+			if self._vbuf then
+				vim.api.nvim_buf_delete(self._vbuf, { force = true })
+				self._vbuf = nil
 			end
 			self:_close_soon()
 		end)
-		vim.wo[self.vwin].wrap = true
-		vim.wo[self.vwin].winhighlight = _WINHL
-		vim.wo[self.vwin].conceallevel = 3
+		vim.wo[self._vwin].wrap = true
+		vim.wo[self._vwin].winhighlight = _WINHL
+		vim.wo[self._vwin].conceallevel = 3
 	end
 end
 
@@ -997,9 +1000,9 @@ end
 ---@param cfgs locate.Picker.Cfgs
 ---@return boolean list_moved Whether the list window changed geometry.
 function Picker:_resize_windows(cfgs)
-	self:_resize_window(self.pwin, cfgs.prompt)
-	local list_moved = self:_resize_window(self.lwin, cfgs.list)
-	if self.preview_enabled then self:_resize_window(self.vwin, cfgs.preview) end
+	self:_resize_window(self._pwin, cfgs.prompt)
+	local list_moved = self:_resize_window(self._lwin, cfgs.list)
+	if self._preview_enabled then self:_resize_window(self._vwin, cfgs.preview) end
 	return list_moved
 end
 
@@ -1017,7 +1020,7 @@ function Picker:_apply_layout()
 	-- The wrapped query is measured off the prompt window, so the layout starts
 	-- from the height the prompt has now and is settled below, once the window
 	-- has been moved to the width this one gives it.
-	self.layout = self:_build_layout(self.layout.prompt_height)
+	self._layout = self:_build_layout(self._layout.prompt_height)
 	local list_moved = self:_resize_windows(self:_float_cfgs())
 
 	-- The prompt is where it will be and as wide as it will be, so what the query
@@ -1025,8 +1028,8 @@ function Picker:_apply_layout()
 	-- under it -- the list's -- answer to it; the widths and the preview do not,
 	-- so this second pass is the last one.
 	local wrapped = self:_prompt_text_height()
-	if wrapped ~= self.layout.prompt_height then
-		self.layout = self:_build_layout(wrapped)
+	if wrapped ~= self._layout.prompt_height then
+		self._layout = self:_build_layout(wrapped)
 		list_moved = self:_resize_windows(self:_float_cfgs()) or list_moved
 	end
 	-- What was measured, not what the layout granted: past the even split the
@@ -1042,7 +1045,7 @@ end
 ---The windows themselves are put up once by `_create_windows`, at launch.
 ---@return nil
 function Picker:relayout()
-	if self.closed then return end
+	if self._closed then return end
 
 	local list_moved = self:_apply_layout()
 
@@ -1051,13 +1054,13 @@ function Picker:relayout()
 	-- separator keeps the length of the window the picker used to be. The
 	-- labels themselves were cropped by their source and stay as they are until
 	-- the next fetch re-crops them.
-	if list_moved and #self.list_items > 0 then
+	if list_moved and #self._list_items > 0 then
 		local row = self:get_cursor()
-		self:set_items(self.list_items)
+		self:set_items(self._list_items)
 		if row then self:move_cursor(row, true, true) end
 	end
 
-	if self.preview_enabled then self:update_preview() end
+	if self._preview_enabled then self:update_preview() end
 end
 
 ---Show `msg` under the query, along the prompt's right edge.
@@ -1079,7 +1082,7 @@ end
 ---@param priority integer
 ---@return nil
 function Picker:_set_prompt_error(ns, msg, hl, priority)
-	vim.api.nvim_buf_set_extmark(self.pbuf, ns, 0, 0, {
+	vim.api.nvim_buf_set_extmark(self._pbuf, ns, 0, 0, {
 		virt_lines          = { { { _ERROR_ICON .. msg, hl } } },
 		virt_lines_overflow = "trunc",
 		priority            = priority,
@@ -1095,15 +1098,15 @@ end
 function Picker:_prefix_chunks(errors)
 	-- The label names the section rather than standing for a flag, so it is not
 	-- drawn as one: a mark closes it, as it always did.
-	if self.mode == "flags" then
+	if self._mode == "flags" then
 		return { { _FLAGS_LABEL, "Special" }, { _PREFIX_MARK, "Special" } }
 	end
-	if self.flag_text == "" then return {} end
+	if self._flag_text == "" then return {} end
 
 	-- The flags carry the colours they are written in, so a pill reads as the same
 	-- text the flags section holds. A mistake reddens the span it sits on, not the
 	-- whole flag: the rest of it is still read as written.
-	local spans = queryflags.highlight(self.opts.flags, self.flag_text)
+	local spans = queryflags.highlight(self.opts.flags, self._flag_text)
 	for _, err in ipairs(errors or {}) do
 		spans[#spans + 1] = { start = err.start, finish = err.finish, hl = "DiagnosticError" }
 	end
@@ -1111,11 +1114,11 @@ function Picker:_prefix_chunks(errors)
 	-- A blank cell stands either side of the run of pills, holding them off the
 	-- edge of the window and off the query.
 	local chunks = { { " " } } ---@type {[1]:string,[2]:string?}[]
-	for i, token in ipairs(_tokens(self.flag_text)) do
+	for i, token in ipairs(_tokens(self._flag_text)) do
 		local from, to = token[1], token[2]
 		if i > 1 then chunks[#chunks + 1] = { " " } end -- one space between pills
 		vim.list_extend(chunks, pill.wrap(_chunked(
-			self.flag_text:sub(from + 1, to), _spans_within(spans, from, to))))
+			self._flag_text:sub(from + 1, to), _spans_within(spans, from, to))))
 	end
 	-- Whitespace alone is no flag: no pill, and no prefix either.
 	if #chunks == 1 then return {} end
@@ -1139,13 +1142,13 @@ end
 ---@param errors locate.queryflags.Error[] Mistakes in the flags, if any.
 ---@return nil
 function Picker:_render_prompt_prefix(errors)
-	if not self.pbuf then return end
-	vim.api.nvim_buf_clear_namespace(self.pbuf, _NS_PREFIX, 0, -1)
+	if not self._pbuf then return end
+	vim.api.nvim_buf_clear_namespace(self._pbuf, _NS_PREFIX, 0, -1)
 
 	local chunks = self:_prefix_chunks(errors)
 	if #chunks == 0 then return end
 
-	vim.api.nvim_buf_set_extmark(self.pbuf, _NS_PREFIX, 0, 0, {
+	vim.api.nvim_buf_set_extmark(self._pbuf, _NS_PREFIX, 0, 0, {
 		virt_text     = chunks,
 		virt_text_pos = "inline",
 		right_gravity = false,
@@ -1157,7 +1160,7 @@ end
 ---Mistakes in the flags section, as `parse` reports them.
 ---@return locate.queryflags.Error[] errors, locate.queryflags.ParseResult parsed
 function Picker:_flag_errors()
-	local parsed = queryflags.parse(self.opts.flags, self.flag_text)
+	local parsed = queryflags.parse(self.opts.flags, self._flag_text)
 	return parsed.errors, parsed
 end
 
@@ -1172,8 +1175,8 @@ end
 
 ---@return nil
 function Picker:_render_prompt_marks()
-	if not self.pbuf then return end
-	vim.api.nvim_buf_clear_namespace(self.pbuf, _NS_CONTENT, 0, -1)
+	if not self._pbuf then return end
+	vim.api.nvim_buf_clear_namespace(self._pbuf, _NS_CONTENT, 0, -1)
 	self._query_error = nil
 	if #self.opts.flags == 0 then
 		self:_render_prompt_prefix({})
@@ -1181,12 +1184,12 @@ function Picker:_render_prompt_marks()
 	end
 
 	local errors = self:_flag_errors()
-	local query = self.flag_text
+	local query = self._flag_text
 	self:_render_prompt_prefix(errors)
 
 	-- Away from the flags there is nothing on this line to mark up, but a
 	-- mistake among them still stops the search, so it still says so.
-	if self.mode ~= "flags" then
+	if self._mode ~= "flags" then
 		if #errors > 0 then
 			self._query_error = errors[1].msg
 			self:_set_prompt_error(_NS_CONTENT, errors[1].msg, "DiagnosticVirtualTextError", 100)
@@ -1198,13 +1201,13 @@ function Picker:_render_prompt_marks()
 	-- line as it is right now. Insert-mode completion changes that line without
 	-- a TextChangedI, so the two can disagree; clamping keeps a stale span from
 	-- erroring out of range instead of just highlighting a little too much.
-	local line = #(vim.api.nvim_buf_get_lines(self.pbuf, 0, 1, false)[1] or "")
+	local line = #(vim.api.nvim_buf_get_lines(self._pbuf, 0, 1, false)[1] or "")
 
 	for _, h in ipairs(queryflags.highlight(self.opts.flags, query)) do
 		local start = math.min(h.start, line)
 		local finish = math.min(h.finish, line)
 		if start < finish then
-			vim.api.nvim_buf_set_extmark(self.pbuf, _NS_CONTENT, 0, start, {
+			vim.api.nvim_buf_set_extmark(self._pbuf, _NS_CONTENT, 0, start, {
 				end_col  = finish,
 				hl_group = h.hl,
 			})
@@ -1217,7 +1220,7 @@ function Picker:_render_prompt_marks()
 	-- wait for the cursor to leave; a mistake `parse` marks `settled` cannot be
 	-- typed out of, so it says so at once. Holding a message back only delays
 	-- the words: an error stops the search either way (see `run_fetch`).
-	local cursor    = self.pwin and vim.api.nvim_win_get_cursor(self.pwin)[2] or #query
+	local cursor    = self._pwin and vim.api.nvim_win_get_cursor(self._pwin)[2] or #query
 	self._error_col = cursor
 	local shown     = {}
 	for _, err in ipairs(errors) do
@@ -1228,7 +1231,7 @@ function Picker:_render_prompt_marks()
 	if #shown == 0 then return end
 
 	for _, err in ipairs(shown) do
-		vim.api.nvim_buf_set_extmark(self.pbuf, _NS_CONTENT, 0, math.min(err.start, line), {
+		vim.api.nvim_buf_set_extmark(self._pbuf, _NS_CONTENT, 0, math.min(err.start, line), {
 			end_col  = math.min(err.finish, line),
 			hl_group = "DiagnosticUnderlineError",
 			priority = 200,
@@ -1254,7 +1257,7 @@ function Picker:_status_winbar()
 	end
 	-- An error about the query says more than the count does, and only one of
 	-- the two is shown at a time.
-	local total = #self.list_items
+	local total = #self._list_items
 	if not self._query_error and total > 0 then
 		text = text .. string.format(" %d/%d", self:get_cursor() or 1, total)
 	end
@@ -1266,20 +1269,20 @@ end
 ---counter. The rule is the list float's winbar, a window-local option, so this
 ---touches neither window config nor the prompt.
 function Picker:render_status()
-	if not (self.lwin and vim.api.nvim_win_is_valid(self.lwin)) then return end
-	vim.wo[self.lwin].winbar = self:_status_winbar()
+	if not (self._lwin and vim.api.nvim_win_is_valid(self._lwin)) then return end
+	vim.wo[self._lwin].winbar = self:_status_winbar()
 end
 
 function Picker:render_cursor()
-	if not self.lbuf then return end
-	vim.api.nvim_buf_clear_namespace(self.lbuf, _NS_CURSOR, 0, -1)
-	local total = #self.list_items
+	if not self._lbuf then return end
+	vim.api.nvim_buf_clear_namespace(self._lbuf, _NS_CURSOR, 0, -1)
+	local total = #self._list_items
 	if total == 0 then
 		self:render_status()
 		return
 	end
 	local cur = self:get_cursor() or 1
-	vim.api.nvim_buf_set_extmark(self.lbuf, _NS_CURSOR, cur - 1, 0, {
+	vim.api.nvim_buf_set_extmark(self._lbuf, _NS_CURSOR, cur - 1, 0, {
 		virt_text = { { "❯ ", "Special" } },
 		virt_text_pos = "overlay",
 		priority = 100,
@@ -1298,7 +1301,7 @@ end
 ---@param cursor boolean whether the row is the one under the cursor
 ---@return nil
 function Picker:_render_virt_line(row, cursor)
-	local item = self.list_items[row]
+	local item = self._list_items[row]
 	if not item or not item.virt_line or #item.virt_line == 0 then return end
 
 	local chunks = { { _LIST_PREFIX }, { "╰─ ", _HL_RULE } }
@@ -1312,11 +1315,11 @@ function Picker:_render_virt_line(row, cursor)
 			-- colours and only falls back to the cursor line's background.
 			chunks[i] = { text, hl and { "CursorLine", hl } or "CursorLine" }
 		end
-		local pad = self.layout.list_width - width
+		local pad = self._layout.list_width - width
 		if pad > 0 then chunks[#chunks + 1] = { string.rep(" ", pad), "CursorLine" } end
 	end
 
-	vim.api.nvim_buf_set_extmark(self.lbuf, _NS_VLINE, row - 1, 0, {
+	vim.api.nvim_buf_set_extmark(self._lbuf, _NS_VLINE, row - 1, 0, {
 		id         = row,
 		virt_lines = { chunks },
 		hl_mode    = "blend",
@@ -1325,8 +1328,8 @@ end
 
 ---@return integer?
 function Picker:get_cursor()
-	if not self.lwin then return nil end
-	return vim.api.nvim_win_get_cursor(self.lwin)[1]
+	if not self._lwin then return nil end
+	return vim.api.nvim_win_get_cursor(self._lwin)[1]
 end
 
 ---Neovim won't scroll to reveal virt_lines hanging below the cursor line, so an
@@ -1339,15 +1342,15 @@ end
 ---hanging lines off screen. Callers gate on that -- see `move_cursor`.
 ---@param row integer
 function Picker:_reveal_virt_lines(row)
-	if not self.lwin or not vim.api.nvim_win_is_valid(self.lwin) then return end
-	local item = self.list_items[row]
+	if not self._lwin or not vim.api.nvim_win_is_valid(self._lwin) then return end
+	local item = self._list_items[row]
 	-- Only the virtual line moves the view: a separator clipped at the very
 	-- bottom of the list costs nothing to leave there.
 	if not item or not item.virt_line then return end
 
-	vim.api.nvim_win_call(self.lwin, function()
+	vim.api.nvim_win_call(self._lwin, function()
 		-- Screen height of the entry's own text (wrapped rows, excluding virt_lines).
-		local line_height = vim.api.nvim_win_text_height(self.lwin, {
+		local line_height = vim.api.nvim_win_text_height(self._lwin, {
 			start_row = row - 1,
 			end_row = row - 1,
 		}).all
@@ -1355,7 +1358,7 @@ function Picker:_reveal_virt_lines(row)
 		-- `winline()` counts from the first text row, which the winbar's own row
 		-- is not, while the window height counts it.
 		local bottom_row = vim.fn.winline() + line_height - 1
-		if bottom_row < vim.api.nvim_win_get_height(self.lwin) - 1 then return end
+		if bottom_row < vim.api.nvim_win_get_height(self._lwin) - 1 then return end
 		local view = vim.fn.winsaveview()
 		view.topline = view.topline + 1
 		vim.fn.winrestview(view)
@@ -1366,9 +1369,9 @@ end
 ---@param force boolean?
 ---@param clamp boolean?
 function Picker:move_cursor(row, force, clamp)
-	local total = #self.list_items
+	local total = #self._list_items
 	if total == 0 then return end
-	if not self.lwin or not vim.api.nvim_win_is_valid(self.lwin) then return end
+	if not self._lwin or not vim.api.nvim_win_is_valid(self._lwin) then return end
 
 	if clamp then
 		row = _clamp(row, 1, total)
@@ -1382,9 +1385,9 @@ function Picker:move_cursor(row, force, clamp)
 	-- preview and load the same item again.
 	if not force and row == self:get_cursor() then return end
 
-	vim.api.nvim_win_set_cursor(self.lwin, { row, 0 })
+	vim.api.nvim_win_set_cursor(self._lwin, { row, 0 })
 	vim.schedule(function()
-		if not self.closed and row == #self.list_items then
+		if not self._closed and row == #self._list_items then
 			self:_reveal_virt_lines(row)
 		end
 	end)
@@ -1392,57 +1395,66 @@ function Picker:move_cursor(row, force, clamp)
 	self:render_cursor()
 	self:render_status()
 	self:update_preview()
+
+	-- An item is new when it sits on a row other than the one last highlighted; a
+	-- refetch clears that row, so the item it lands on counts as new as well.
+	local previous = self._cursor_row
+	self._cursor_row = row
+	if previous ~= row and self.opts.on_cursor then
+		local item = self._list_items[row]
+		if item then self.opts.on_cursor(item.data) end
+	end
 end
 
 ---@return nil
 function Picker:update_preview()
-	self.async_preview_context = self.async_preview_context + 1
-	local preview_context = self.async_preview_context
-	local fetch_context = self.async_fetch_context
+	self._async_preview_context = self._async_preview_context + 1
+	local preview_context = self._async_preview_context
+	local fetch_context = self._async_fetch_context
 
-	if self.closed then return end
-	if not self.vbuf then return end
+	if self._closed then return end
+	if not self._vbuf then return end
 
 	self:request_clear_preview()
 
-	if self.async_preview_cancel then
-		self.async_preview_cancel()
-		self.async_preview_cancel = nil
+	if self._async_preview_cancel then
+		self._async_preview_cancel()
+		self._async_preview_cancel = nil
 	end
 
 	local cursor = self:get_cursor()
 	---@type locate.picker.ListItem?
-	local item = cursor and self.list_items[cursor] or nil
+	local item = cursor and self._list_items[cursor] or nil
 	if not item then return end
 
 	-- The layout's width and height are what `nvim_open_win` was handed, and it
 	-- draws the border outside them (see `layouts._BORDER_SPAN`), so these are
 	-- already the content area a previewer gets to fill.
-	local preview_width = self.layout.preview_width
-	local preview_height = self.layout.preview_height
+	local preview_width = self._layout.preview_width
+	local preview_height = self._layout.preview_height
 
 	local preview_fn = self.opts.previewer or pickertools.file_preview
 
-	self.async_preview_cancel = preview_fn(
+	self._async_preview_cancel = preview_fn(
 		item.data,
 		{
 			viewport_width = preview_width,
 			viewport_height = preview_height,
 		},
 		vim.schedule_wrap(function(preview)
-			if self.closed or preview_context ~= self.async_preview_context or fetch_context ~= self.async_fetch_context then
+			if self._closed or preview_context ~= self._async_preview_context or fetch_context ~= self._async_fetch_context then
 				return
 			end
 			preview = preview or {}
 			self:cancel_clear_preview_req()
 
 			if preview.bufnr and vim.api.nvim_buf_is_valid(preview.bufnr) then
-				if self.vwin and vim.api.nvim_win_is_valid(self.vwin) then
+				if self._vwin and vim.api.nvim_win_is_valid(self._vwin) then
 					self:release_external_preview_buf()
 					self._preview_external_buf = preview.bufnr
-					vim.api.nvim_win_set_buf(self.vwin, preview.bufnr)
+					vim.api.nvim_win_set_buf(self._vwin, preview.bufnr)
 					self:_reset_preview_winhl()
-					_apply_preview_pos(self.vwin, preview.bufnr, preview.pos, preview.pos_end)
+					_apply_preview_pos(self._vwin, preview.bufnr, preview.pos, preview.pos_end)
 				end
 				return
 			end
@@ -1458,18 +1470,18 @@ function Picker:update_preview()
 			else
 				lines = _center_for_previewer(preview.error_msg or "No preview", preview_width, preview_height)
 			end
-			if self.vbuf then
-				vim.bo[self.vbuf].modifiable = true
-				vim.api.nvim_buf_set_lines(self.vbuf, 0, -1, false, lines)
-				vim.bo[self.vbuf].modifiable = false
+			if self._vbuf then
+				vim.bo[self._vbuf].modifiable = true
+				vim.api.nvim_buf_set_lines(self._vbuf, 0, -1, false, lines)
+				vim.bo[self._vbuf].modifiable = false
 				local filetype = content and (preview.filetype
 					or (preview.filepath and vim.filetype.match({ filename = preview.filepath }))
 					or "") or ""
 				-- Set only 'syntax' (not 'filetype') so no FileType autocmd fires and
 				-- treesitter/lsp never attaches (avoid slowness and flickering); legacy vim-regex syntax highlighting is
 				-- still loaded via the Syntax autocmd.
-				vim.bo[self.vbuf].syntax = filetype
-				_apply_preview_pos(self.vwin, self.vbuf, content and preview.pos or nil,
+				vim.bo[self._vbuf].syntax = filetype
+				_apply_preview_pos(self._vwin, self._vbuf, content and preview.pos or nil,
 					content and preview.pos_end or nil)
 			end
 		end)
@@ -1477,18 +1489,18 @@ function Picker:update_preview()
 end
 
 function Picker:start_spinner()
-	if self.spinner or self._spinner_delay_timer then return end
+	if self._spinner or self._spinner_delay_timer then return end
 	self._spinner_delay_timer = vim.defer_fn(function()
 		self._spinner_delay_timer = nil
-		if not self.spinner then
-			self.spinner = Spinner:new {
+		if not self._spinner then
+			self._spinner = Spinner:new {
 				interval = 100,
 				on_update = function(frame)
 					self._spinner_frame = frame
 					self:render_status()
 				end
 			}
-			self.spinner:start()
+			self._spinner:start()
 		end
 	end, _antiflicker_delay)
 end
@@ -1498,9 +1510,9 @@ function Picker:stop_spinner()
 		self._spinner_delay_timer:close()
 		self._spinner_delay_timer = nil
 	end
-	if self.spinner then
-		self.spinner:stop()
-		self.spinner = nil
+	if self._spinner then
+		self._spinner:stop()
+		self._spinner = nil
 	end
 	self._spinner_frame = nil
 	self:render_status()
@@ -1518,8 +1530,8 @@ end
 ---@return nil
 function Picker:_restore_preview_buf()
 	if not self._preview_external_buf then return end
-	if self.vwin and vim.api.nvim_win_is_valid(self.vwin) then
-		pcall(vim.api.nvim_win_set_buf, self.vwin, self.vbuf)
+	if self._vwin and vim.api.nvim_win_is_valid(self._vwin) then
+		pcall(vim.api.nvim_win_set_buf, self._vwin, self._vbuf)
 		self:_reset_preview_winhl()
 	end
 	self:release_external_preview_buf()
@@ -1529,38 +1541,38 @@ end
 ---every buffer swap in the preview window has to put it back.
 ---@return nil
 function Picker:_reset_preview_winhl()
-	vim.wo[self.vwin].winhighlight = _WINHL
+	vim.wo[self._vwin].winhighlight = _WINHL
 end
 
 ---@param immediate  boolean?
 function Picker:request_clear_preview(immediate)
 	local clear = function()
-		if not self.vbuf or self.closed then return end
+		if not self._vbuf or self._closed then return end
 		self:_restore_preview_buf()
-		vim.bo[self.vbuf].modifiable = true
-		vim.api.nvim_buf_set_lines(self.vbuf, 0, -1, false, {})
-		vim.bo[self.vbuf].modifiable = false
-		vim.api.nvim_buf_clear_namespace(self.vbuf, _NS_PREVIEW, 0, -1)
+		vim.bo[self._vbuf].modifiable = true
+		vim.api.nvim_buf_set_lines(self._vbuf, 0, -1, false, {})
+		vim.bo[self._vbuf].modifiable = false
+		vim.api.nvim_buf_clear_namespace(self._vbuf, _NS_PREVIEW, 0, -1)
 	end
 	if immediate then
 		self:cancel_clear_preview_req()
 		clear()
-	elseif not self.preview_timer then
-		self.preview_timer = vim.defer_fn(function()
-			self.preview_timer = nil
+	elseif not self._preview_timer then
+		self._preview_timer = vim.defer_fn(function()
+			self._preview_timer = nil
 			clear()
 		end, _antiflicker_delay)
 	end
 end
 
 function Picker:cancel_clear_preview_req()
-	self.preview_timer = timer.stop_and_close_timer(self.preview_timer)
+	self._preview_timer = timer.stop_and_close_timer(self._preview_timer)
 end
 
 function Picker:clear_list()
 	-- Set first: `set_items` is a no-op without a list buffer, and the list has
 	-- to read as empty either way.
-	self.list_items = {}
+	self._list_items = {}
 	self:set_items({})
 	self:request_clear_preview()
 	self:render_cursor()
@@ -1570,7 +1582,7 @@ end
 ---@param items (locate.Picker.Item|locate.picker.ListItem)[]?
 function Picker:set_items(items)
 	items = items or {}
-	if not self.lbuf then return end
+	if not self._lbuf then return end
 
 	local prefix     = _LIST_PREFIX
 	local count      = #items
@@ -1603,12 +1615,12 @@ function Picker:set_items(items)
 		end
 	end
 
-	self.list_items = list_items
+	self._list_items = list_items
 
-	vim.bo[self.lbuf].modifiable = true
-	vim.api.nvim_buf_set_lines(self.lbuf, 0, -1, false, lines)
-	vim.api.nvim_buf_clear_namespace(self.lbuf, _NS_CONTENT, 0, -1)
-	vim.api.nvim_buf_clear_namespace(self.lbuf, _NS_VLINE, 0, -1)
+	vim.bo[self._lbuf].modifiable = true
+	vim.api.nvim_buf_set_lines(self._lbuf, 0, -1, false, lines)
+	vim.api.nvim_buf_clear_namespace(self._lbuf, _NS_CONTENT, 0, -1)
+	vim.api.nvim_buf_clear_namespace(self._lbuf, _NS_VLINE, 0, -1)
 	self._vline_row = nil
 	-- virt lines
 	for row_idx = 1, count do
@@ -1622,7 +1634,7 @@ function Picker:set_items(items)
 				local text, hl = chunks[i][1], chunks[i][2]
 				if text and #text > 0 then
 					if hl then
-						vim.api.nvim_buf_set_extmark(self.lbuf, _NS_CONTENT, row, col, {
+						vim.api.nvim_buf_set_extmark(self._lbuf, _NS_CONTENT, row, col, {
 							end_col  = col + #text,
 							hl_group = hl,
 						})
@@ -1635,9 +1647,9 @@ function Picker:set_items(items)
 		self:_render_virt_line(row_idx, false)
 	end
 
-	vim.bo[self.lbuf].modifiable = false
-	if self.lwin and vim.api.nvim_win_is_valid(self.lwin) then
-		vim.wo[self.lwin].cursorline = count > 0
+	vim.bo[self._lbuf].modifiable = false
+	if self._lwin and vim.api.nvim_win_is_valid(self._lwin) then
+		vim.wo[self._lwin].cursorline = count > 0
 	end
 end
 
@@ -1654,12 +1666,12 @@ end
 
 function Picker:run_fetch()
 	local cancel = function()
-		if self.async_fetch_cancel then
-			self.async_fetch_cancel()
-			self.async_fetch_cancel = nil
+		if self._async_fetch_cancel then
+			self._async_fetch_cancel()
+			self._async_fetch_cancel = nil
 		end
 		-- A callback already on its way in belongs to a context nothing waits for.
-		self.async_fetch_context = self.async_fetch_context + 1
+		self._async_fetch_context = self._async_fetch_context + 1
 		self:stop_spinner()
 		self:clear_list()
 		self._last_clean_query = nil
@@ -1668,15 +1680,15 @@ function Picker:run_fetch()
 
 	-- The query is the whole prompt line now, and it goes to the source as it
 	-- stands: nothing else shares the line, so its spaces are the query's own.
-	local query_text = self.query_text
+	local query_text = self._query_text
 
 	---@type locate.Picker.FetcherOpts
 	local fetch_opts = {
 		-- The window width is the content area; the two columns come off for
 		-- the prefix every row is written behind, not for the border.
-		line_width      = math.max(1, self.layout.list_width - 2),
-		virt_line_width = math.max(1, self.layout.list_width - 5),
-		list_height     = math.max(1, self.layout.list_height),
+		line_width      = math.max(1, self._layout.list_width - 2),
+		virt_line_width = math.max(1, self._layout.list_width - 5),
+		list_height     = math.max(1, self._layout.list_height),
 	}
 
 	local clean_query = query_text
@@ -1707,34 +1719,40 @@ function Picker:run_fetch()
 	self._last_clean_query = clean_query
 	self._last_flags       = flags
 
-	if self.async_fetch_cancel then
-		self.async_fetch_cancel()
-		self.async_fetch_cancel = nil
+	if self._async_fetch_cancel then
+		self._async_fetch_cancel()
+		self._async_fetch_cancel = nil
 	end
 
 	self:request_clear_preview()
 
-	self.async_fetch_context = self.async_fetch_context + 1
-	local context            = self.async_fetch_context
+	self._async_fetch_context = self._async_fetch_context + 1
+	local context            = self._async_fetch_context
 
 	local complete           = false
 
-	self.async_fetch_cancel  = self.opts.finder(
+	self._async_fetch_cancel  = self.opts.finder(
 		clean_query,
 		flags,
 		fetch_opts,
 		function(new_items)
-			if complete or self.closed or context ~= self.async_fetch_context then return end
+			if complete or self._closed or context ~= self._async_fetch_context then return end
 			complete = true
 			self:stop_spinner()
 			if new_items and #new_items > 0 then
-				new_items = _rank_items(new_items)
+				new_items        = _rank_items(new_items)
+				-- Read before the flag it comes from is spent below.
+				local opening    = self._set_init_cursor
 				local target_row = 1
-				if self._set_init_cursor then
+				if opening then
 					self._set_init_cursor = false
 					target_row = _clamp(
 						_resolve_initial_cursor(new_items, self.opts.initial_cursor) or 1, 1, #new_items)
 				end
+				-- New results leave the cursor on an item the user has not seen, so
+				-- the row it was on no longer applies. The opening fetch is the
+				-- picker's own choice of row, so it records it as already on.
+				self._cursor_row = opening and target_row or nil
 				self:set_items(new_items)
 				self:move_cursor(target_row, true, true)
 			else
@@ -1743,37 +1761,37 @@ function Picker:run_fetch()
 		end
 	)
 	if not complete then
-		assert(type(self.async_fetch_cancel) == "function",
+		assert(type(self._async_fetch_cancel) == "function",
 			"finder with deferred result should return a function")
 		self:start_spinner()
 	end
 end
 
 function Picker:history_prev()
-	if not self.opts.history_provider or #self.history == 0 then return end
+	if not self.opts.history_provider or #self._history == 0 then return end
 
-	if self.history_idx == #self.history + 1 then
-		self.history_saved_entry = _encode_history(self.flag_text, self.query_text)
+	if self._history_idx == #self._history + 1 then
+		self._history_saved_entry = _encode_history(self._flag_text, self._query_text)
 	end
 
-	local new_idx = math.max(1, self.history_idx - 1)
-	if new_idx ~= self.history_idx then
-		self.history_idx = new_idx
-		self:set_prompt(_decode_history(self.history[self.history_idx]))
+	local new_idx = math.max(1, self._history_idx - 1)
+	if new_idx ~= self._history_idx then
+		self._history_idx = new_idx
+		self:set_prompt(_decode_history(self._history[self._history_idx]))
 	end
 end
 
 function Picker:history_next()
 	if not self.opts.history_provider then return end
 
-	local new_idx = self.history_idx + 1
-	if new_idx <= #self.history then
-		self.history_idx = new_idx
-		self:set_prompt(_decode_history(self.history[self.history_idx]))
-	elseif new_idx == #self.history + 1 then
-		self.history_idx         = new_idx
-		local entry              = self.history_saved_entry or ""
-		self.history_saved_entry = nil
+	local new_idx = self._history_idx + 1
+	if new_idx <= #self._history then
+		self._history_idx = new_idx
+		self:set_prompt(_decode_history(self._history[self._history_idx]))
+	elseif new_idx == #self._history + 1 then
+		self._history_idx         = new_idx
+		local entry              = self._history_saved_entry or ""
+		self._history_saved_entry = nil
 		self:set_prompt(_decode_history(entry))
 	end
 end
@@ -1783,23 +1801,23 @@ end
 ---@param flag_text string
 ---@param query string
 function Picker:set_prompt(flag_text, query)
-	self.flag_text  = _tidy_flags(flag_text)
-	self.query_text = query
+	self._flag_text  = _tidy_flags(flag_text)
+	self._query_text = query
 	self._query_col = nil
 	self._flag_col  = nil
 	local text      = self:_mode_text()
-	vim.api.nvim_buf_set_lines(self.pbuf, 0, -1, false, { text })
-	vim.api.nvim_win_set_cursor(self.pwin, { 1, #text })
+	vim.api.nvim_buf_set_lines(self._pbuf, 0, -1, false, { text })
+	vim.api.nvim_win_set_cursor(self._pwin, { 1, #text })
 	self:render_prompt_highlight()
 	self:run_fetch()
 end
 
 function Picker:send_to_qf()
-	if #self.list_items == 0 then return end
+	if #self._list_items == 0 then return end
 	local qf_entries = {} ---@type vim.quickfix.entry[]
 	local formatter  = self.opts.quickfix_formatter
 
-	for _, item in ipairs(self.list_items) do
+	for _, item in ipairs(self._list_items) do
 		local entry ---@type vim.quickfix.entry?
 		if formatter then
 			entry = formatter(item.data)
@@ -1825,32 +1843,32 @@ end
 function Picker:confirm()
 	local cursor = self:get_cursor()
 	---@type locate.picker.ListItem?
-	local list_item = cursor and self.list_items[cursor] or nil
+	local list_item = cursor and self._list_items[cursor] or nil
 	self:close(list_item and list_item.data or nil)
 end
 
 ---@param selected_data locate.picker.ItemData?
 function Picker:close(selected_data)
-	if self.closed then return end
+	if self._closed then return end
 
 	-- Capture the highlighted row before tearing down (get_cursor needs the list
 	-- window), so on_close can report it and a reopen can reselect the same row.
 	local cursor = self:get_cursor()
 
-	self.closed = true
+	self._closed = true
 	if _active_picker == self then _active_picker = nil end
 
 	-- The floats outlive this call by a tick (see the stopinsert note below),
 	-- so their autocmds go now: each one asserts a picker that is still open.
-	if self.pwin_augroup then pcall(vim.api.nvim_del_augroup_by_id, self.pwin_augroup) end
-	self.pwin_augroup = nil
+	if self._pwin_augroup then pcall(vim.api.nvim_del_augroup_by_id, self._pwin_augroup) end
+	self._pwin_augroup = nil
 
 	self:stop_spinner()
 
-	self.preview_timer = timer.stop_and_close_timer(self.preview_timer)
+	self._preview_timer = timer.stop_and_close_timer(self._preview_timer)
 
-	if self.async_fetch_cancel then self.async_fetch_cancel() end
-	if self.async_preview_cancel then self.async_preview_cancel() end
+	if self._async_fetch_cancel then self._async_fetch_cancel() end
+	if self._async_preview_cancel then self._async_preview_cancel() end
 
 	self:release_external_preview_buf()
 
@@ -1864,13 +1882,13 @@ function Picker:close(selected_data)
 	-- keymap can shut: every one of them routes back through here.
 	vim.cmd("stopinsert!")
 	vim.schedule(function()
-		for _, w in pairs({ self.pwin, self.lwin, self.vwin }) do
+		for _, w in pairs({ self._pwin, self._lwin, self._vwin }) do
 			if vim.api.nvim_win_is_valid(w) then
 				vim.api.nvim_win_close(w, true)
 			end
 		end
 
-		for _, b in pairs({ self.pbuf, self.lbuf, self.vbuf }) do
+		for _, b in pairs({ self._pbuf, self._lbuf, self._vbuf }) do
 			if vim.api.nvim_buf_is_valid(b) then
 				vim.api.nvim_buf_delete(b, { force = true })
 			end
@@ -1880,15 +1898,15 @@ function Picker:close(selected_data)
 	end)
 
 	if self.opts.on_close then
-		self.opts.on_close(self.query_text, self.flag_text, cursor)
+		self.opts.on_close(self._query_text, self._flag_text, cursor)
 	end
 
 	if self.opts.history_provider then
-		local entry = _encode_history(self.flag_text, self.query_text)
-		if entry ~= "" and entry ~= self.history[#self.history] then
-			table.insert(self.history, entry)
+		local entry = _encode_history(self._flag_text, self._query_text)
+		if entry ~= "" and entry ~= self._history[#self._history] then
+			table.insert(self._history, entry)
 			if self.opts.history_provider.store then
-				self.opts.history_provider.store(self.history)
+				self.opts.history_provider.store(self._history)
 			end
 		end
 	end
@@ -1917,7 +1935,7 @@ function Picker:_set_mode(mode)
 		-- Fed keys are typeahead: the menu closes and the line is rewritten after
 		-- this call returns, so the switch reads the line on the next tick.
 		vim.schedule(function()
-			if not self.closed then self:_apply_mode(mode) end
+			if not self._closed then self:_apply_mode(mode) end
 		end)
 		return
 	end
@@ -1937,31 +1955,31 @@ function Picker:_apply_mode(mode)
 
 	-- The line as it stands, not as it was last applied: an edit that has yet to
 	-- reach `apply_prompt` is still what the section says.
-	local live = vim.api.nvim_buf_get_lines(self.pbuf, 0, 1, false)[1] or ""
-	if self.mode == "flags" then
+	local live = vim.api.nvim_buf_get_lines(self._pbuf, 0, 1, false)[1] or ""
+	if self._mode == "flags" then
 		-- Leaving the flags settles them: what the prefix shows, and what the
 		-- joined line carries, is the flags without the gaps typing them opened.
-		self.flag_text = mode == "flags" and live or _tidy_flags(live)
+		self._flag_text = mode == "flags" and live or _tidy_flags(live)
 	else
-		self.query_text = live
+		self._query_text = live
 	end
 
 	-- The column the section is left at, to be given back on returning to it.
-	local col = vim.api.nvim_win_get_cursor(self.pwin)[2]
-	if self.mode == "flags" then
+	local col = vim.api.nvim_win_get_cursor(self._pwin)[2]
+	if self._mode == "flags" then
 		self._flag_col = col
 	else
 		self._query_col = col
 	end
 
-	self.mode                   = mode
+	self._mode                   = mode
 	local text                  = self:_mode_text()
 	-- Writing the section fires TextChangedI; the menu was just answered, so it is
 	-- not to be reopened on arrival.
 	self._suppress_autocomplete = true
-	vim.api.nvim_buf_set_lines(self.pbuf, 0, -1, false, { text })
-	vim.api.nvim_win_set_cursor(self.pwin, { 1, self:_mode_col(text) })
-	vim.b[self.pbuf].locate_completion = { flags = mode == "flags" and self.opts.flags or {} }
+	vim.api.nvim_buf_set_lines(self._pbuf, 0, -1, false, { text })
+	vim.api.nvim_win_set_cursor(self._pwin, { 1, self:_mode_col(text) })
+	vim.b[self._pbuf].locate_completion = { flags = mode == "flags" and self.opts.flags or {} }
 	self:render_prompt_highlight()
 
 	if mode == "flags" and self.opts.auto_complete_flags then
@@ -1976,12 +1994,12 @@ end
 ---end.
 ---@return nil
 function Picker:toggle_prompt_section()
-	if not self.pwin or #self.opts.flags == 0 then return end
-	self:_set_mode(self.mode == "flags" and "query" or "flags")
+	if not self._pwin or #self.opts.flags == 0 then return end
+	self:_set_mode(self._mode == "flags" and "query" or "flags")
 end
 
 function Picker:setup_input()
-	local pbuf_key_opts = _key_opts_of(self.pbuf)
+	local pbuf_key_opts = _key_opts_of(self._pbuf)
 	local expr_opts     = vim.tbl_extend("force", pbuf_key_opts, { expr = true })
 	local has_flags     = #self.opts.flags > 0
 
@@ -2010,7 +2028,7 @@ function Picker:setup_input()
 		return function()
 			local cur = self:get_cursor()
 			if cur then
-				self:move_cursor(cur + dir * math.floor(self.layout.list_height / 2), false, true)
+				self:move_cursor(cur + dir * math.floor(self._layout.list_height / 2), false, true)
 			end
 		end
 	end
@@ -2046,14 +2064,14 @@ function Picker:setup_input()
 	end
 
 	vim.keymap.set("i", "<C-Space>", function()
-		if self.mode ~= "flags" then return end
+		if self._mode ~= "flags" then return end
 		vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-x><C-o>", true, false, true), "n", false)
 	end, pbuf_key_opts)
 
 	-- Leaving insert steps the cursor one column left, which can land it on the
 	-- prefix.
 	vim.api.nvim_create_autocmd("InsertLeave", {
-		buffer = self.pbuf,
+		buffer = self._pbuf,
 		callback = function() self:_nudge_off_prefix() end,
 	})
 
@@ -2063,7 +2081,7 @@ function Picker:setup_input()
 	-- closes. Nothing is completed off a menu that is already up, so the
 	-- auto-trigger stays on the insert event alone.
 	vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI", "TextChangedP" }, {
-		buffer = self.pbuf,
+		buffer = self._pbuf,
 		callback = function(ev)
 			self:apply_prompt()
 			if ev.event == "TextChangedI" and self.opts.auto_complete_flags then
@@ -2080,12 +2098,12 @@ function Picker:setup_input()
 	-- in it -- nothing left to type -- never says anything at all.
 	if has_flags then
 		vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
-			buffer = self.pbuf,
+			buffer = self._pbuf,
 			callback = function()
-				if self.closed or not self.pwin then return end
+				if self._closed or not self._pwin then return end
 				-- Typing moves the cursor too, and the text path has just
 				-- drawn these same errors for this same column.
-				if vim.api.nvim_win_get_cursor(self.pwin)[2] == self._error_col then return end
+				if vim.api.nvim_win_get_cursor(self._pwin)[2] == self._error_col then return end
 				-- A line the cache has not caught up with is taken in whole --
 				-- flags read again, results refetched -- rather than assigned to
 				-- the cache: assigning here settles the text the text path
@@ -2098,7 +2116,7 @@ function Picker:setup_input()
 		})
 	end
 
-	local lbuf_key_opts = _key_opts_of(self.lbuf)
+	local lbuf_key_opts = _key_opts_of(self._lbuf)
 	vim.keymap.set("n", "<Esc>", function() self:close() end, lbuf_key_opts)
 	vim.keymap.set("n", "<CR>", function() self:confirm() end, lbuf_key_opts)
 end
@@ -2168,7 +2186,7 @@ M._resolve_initial_cursor = _resolve_initial_cursor
 ---@param callback locate.Picker.Callback
 function M.open(opts, callback)
 	assert(opts.finder, "finder missing in opts")
-	if _active_picker and not _active_picker.closed then
+	if _active_picker and not _active_picker._closed then
 		_active_picker:close()
 	end
 	Picker:new(opts, callback)

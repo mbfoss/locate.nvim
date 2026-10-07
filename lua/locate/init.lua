@@ -30,6 +30,7 @@ local cfgmod = require("locate.config")
 ---@field finder fun(query:string, flags:table, fetch_opts:locate.Picker.FetcherOpts, callback:fun(items:locate.Picker.Item[]?)):fun()?
 ---@field previewer locate.Picker.AsyncPreviewLoader?
 ---@field initial_cursor (integer|fun(items:locate.Picker.Item[]):integer?)? Row to highlight when the picker opens: a 1-based index into the ranked list, or a function that finds one in it. Resuming a picker overrides it with the row left behind.
+---@field on_cursor fun(data:locate.picker.ItemData)? Called with an item's data when the highlight moves onto it, as the user steps through the list or a narrower query leaves a new item on top. Not called for the row the picker opens on.
 ---@field on_confirm fun(data:locate.picker.ItemData?)
 
 ---What a picker opens with. The two prompt sections are held apart: the flags
@@ -92,6 +93,7 @@ local function _do_open(spec, data, prompt, initial_index, replay_items)
         history_provider    = spec.history_provider,
         quickfix_formatter  = spec.quickfix_formatter,
         previewer           = spec.previewer,
+        on_cursor           = spec.on_cursor,
         initial_query       = prompt.query,
         initial_flags       = prompt.flags,
         -- Resuming restores the row the picker was left on, which is a more

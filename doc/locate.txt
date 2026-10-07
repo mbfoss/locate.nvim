@@ -307,9 +307,16 @@ with it.
       finder     = function(query, flags, fetch_opts, callback)
         callback({ { label_chunks = { { "an item" } }, data = { ... } } })
       end,
+      on_cursor  = function(data) ... end,
       on_confirm = function(data) ... end,
     })
 <
+
+`on_cursor` fires as the highlight moves onto an item — stepping through the
+list, or a narrower query leaving a new item on top. The picker’s opening row
+is skipped, so a source can act on it without a picker opened and closed
+changing anything. The `colorschemes` source applies each scheme this way: the
+scheme is its own preview, so there is nothing to render beside the list.
 
 - The spec may also be a function returning a spec, built lazily on each open.
 - Every field: the `locate.PickerSpec` annotation in

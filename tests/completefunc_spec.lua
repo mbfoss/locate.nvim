@@ -127,7 +127,7 @@ describe("picker prompt sections", function()
 
         local p = picker._active()
         assert.not_nil(p)
-        local pbuf, pwin = p.pbuf, p.pwin
+        local pbuf, pwin = p._pbuf, p._pwin
 
         -- Insert mode is where this is typed, and there the cursor may sit one
         -- past the last character; without `onemore` normal mode clamps it back
@@ -195,7 +195,7 @@ describe("picker prompt sections", function()
     local function prefix()
         local p = picker._active()
         local text = ""
-        for _, m in ipairs(vim.api.nvim_buf_get_extmarks(p.pbuf, -1, 0, -1, { details = true })) do
+        for _, m in ipairs(vim.api.nvim_buf_get_extmarks(p._pbuf, -1, 0, -1, { details = true })) do
             for _, chunk in ipairs(m[4] and m[4].virt_text or {}) do
                 text = text .. chunk[1]
             end
@@ -211,15 +211,15 @@ describe("picker prompt sections", function()
         assert.is_true(flags.hidden)
 
         local p = picker._active()
-        assert.are.equal("foo bar", vim.api.nvim_buf_get_lines(p.pbuf, 0, 1, false)[1])
+        assert.are.equal("foo bar", vim.api.nvim_buf_get_lines(p._pbuf, 0, 1, false)[1])
         assert.are.equal(" " .. pill("hidden") .. " ", prefix())
 
         p:toggle_prompt_section()
-        assert.are.equal("hidden", vim.api.nvim_buf_get_lines(p.pbuf, 0, 1, false)[1])
+        assert.are.equal("hidden", vim.api.nvim_buf_get_lines(p._pbuf, 0, 1, false)[1])
         assert.are.equal("Flags› ", prefix())
 
         p:toggle_prompt_section()
-        assert.are.equal("foo bar", vim.api.nvim_buf_get_lines(p.pbuf, 0, 1, false)[1])
+        assert.are.equal("foo bar", vim.api.nvim_buf_get_lines(p._pbuf, 0, 1, false)[1])
     end)
 
     it("shows no prefix at all until a flag is written", function()
@@ -232,7 +232,7 @@ describe("picker prompt sections", function()
         -- an escaped space is a character of the value, so it stays where it is.
         type_prompt({ flags = "  dir=my\\ src   hidden ", query = "x" })
         local p = picker._active()
-        assert.are.equal("dir=my\\ src hidden", p.flag_text)
+        assert.are.equal("dir=my\\ src hidden", p._flag_text)
         assert.are.equal("my src", select(2, type_prompt({ flags = "dir=my\\ src " })).dir)
     end)
 

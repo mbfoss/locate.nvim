@@ -254,6 +254,8 @@ with it.
 
 ## Writing your own source <!-- tag: custom-sources -->
 
+Minimal example
+
 ```lua
 require("locate").register("my_source", {
   prompt     = "My source",
