@@ -7,12 +7,14 @@ local pickertools = require("locate.base.pickertools")
 ---A scheme may error halfway through, so the `pcall` reports instead of throwing.
 ---@param name string
 local function apply_scheme(name)
-    local ok, err = pcall(vim.cmd.colorscheme, name)
-    require("locate").apply_highlights()
-    if not ok then
-        vim.notify(("Failed to load colorscheme %s: %s"):format(name, tostring(err)),
-            vim.log.levels.WARN)
-    end
+    vim.schedule(function() -- schedule to avoid issues with vim.cmd.colorscheme
+        local ok, err = pcall(vim.cmd.colorscheme, name)
+        require("locate").apply_highlights()
+        if not ok then
+            vim.notify(("Failed to load colorscheme %s: %s"):format(name, tostring(err)),
+                vim.log.levels.WARN)
+        end
+    end)
 end
 
 ---@return locate.PickerSpec?
