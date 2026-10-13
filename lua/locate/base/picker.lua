@@ -983,9 +983,8 @@ end
 ---written, one pill per written flag while the query is. Flags nobody has
 ---written are nothing to show, so an unflagged query gets no prefix at all.
 ---
----@param errors locate.queryflags.Error[]? Mistakes in the flags, if any.
 ---@return {[1]:string,[2]:string?}[]
-function Picker:_prefix_chunks(errors)
+function Picker:_prefix_chunks()
 	-- The label names the section rather than standing for a flag, so it is not
 	-- drawn as one: a mark closes it, as it always did.
 	if self._mode == "flags" then
@@ -993,23 +992,12 @@ function Picker:_prefix_chunks(errors)
 	end
 	if self._flag_text == "" then return {} end
 
-	-- The flags carry the colours they are written in, so a pill reads as the same
-	-- text the flags section holds. A mistake reddens the span it sits on, not the
-	-- whole flag: the rest of it is still read as written.
-	local spans = queryflags.highlight(self.opts.flags, self._flag_text)
-	for _, err in ipairs(errors or {}) do
-		spans[#spans + 1] = { start = err.start, finish = err.finish, hl = "DiagnosticError" }
-	end
-
 	-- A blank cell stands either side of the run of pills, holding them off the
 	-- edge of the window and off the query.
 	local chunks = { { " " } } ---@type {[1]:string,[2]:string?}[]
 	for i, token in ipairs(queryflags.tokens(self._flag_text)) do
-		local from, to = token[1], token[2]
 		if i > 1 then chunks[#chunks + 1] = { " " } end -- one space between pills
-		vim.list_extend(chunks, pill.wrap(queryflags.chunks(
-			self._flag_text:sub(from + 1, to),
-			queryflags.spans_within(spans, from, to))))
+		vim.list_extend(chunks, pill.wrap(self._flag_text:sub(token[1] + 1, token[2])))
 	end
 	-- Whitespace alone is no flag: no pill, and no prefix either.
 	if #chunks == 1 then return {} end
@@ -1030,13 +1018,12 @@ end
 ---Draw the section that is not being edited at the head of the prompt line, as
 ---inline virtual text. Virtual text rather than buffer content, so the line holds
 ---one section and one only -- what is typed is what that section is.
----@param errors locate.queryflags.Error[] Mistakes in the flags, if any.
 ---@return nil
-function Picker:_render_prompt_prefix(errors)
+function Picker:_render_prompt_prefix()
 	if not self._pbuf then return end
 	vim.api.nvim_buf_clear_namespace(self._pbuf, _NS_PREFIX, 0, -1)
 
-	local chunks = self:_prefix_chunks(errors)
+	local chunks = self:_prefix_chunks()
 	if #chunks == 0 then return end
 
 	vim.api.nvim_buf_set_extmark(self._pbuf, _NS_PREFIX, 0, 0, {
@@ -1070,13 +1057,13 @@ function Picker:_render_prompt_marks()
 	vim.api.nvim_buf_clear_namespace(self._pbuf, _NS_CONTENT, 0, -1)
 	self._query_error = nil
 	if #self.opts.flags == 0 then
-		self:_render_prompt_prefix({})
+		self:_render_prompt_prefix()
 		return
 	end
 
 	local errors = self:_flag_errors()
 	local query = self._flag_text
-	self:_render_prompt_prefix(errors)
+	self:_render_prompt_prefix()
 
 	-- Away from the flags there is nothing on this line to mark up, but a
 	-- mistake among them still stops the search, so it still says so.

@@ -343,59 +343,6 @@ describe("queryflags tokens", function()
     end)
 end)
 
-describe("queryflags chunks", function()
-    it("joins what one span covers into a single chunk", function()
-        assert.are.same({ { "foo", "@string" } },
-            qf.chunks("foo", { { start = 0, finish = 3, hl = "@string" } }))
-    end)
-
-    it("cuts at the byte the highlight changes on", function()
-        assert.are.same({ { "ab", "@keyword" }, { "cd", "@string" } },
-            qf.chunks("abcd", { { start = 0, finish = 2, hl = "@keyword" },
-                                { start = 2, finish = 4, hl = "@string" } }))
-    end)
-
-    it("leaves a byte no span covers without a highlight", function()
-        assert.are.same({ { "a", "@keyword" }, { "b", nil } },
-            qf.chunks("ab", { { start = 0, finish = 1, hl = "@keyword" } }))
-    end)
-
-    it("lets a later span win the bytes it shares with an earlier one", function()
-        assert.are.same({ { "a", "@string" }, { "b", "DiagnosticError" }, { "c", "@string" } },
-            qf.chunks("abc", { { start = 0, finish = 3, hl = "@string" },
-                               { start = 1, finish = 2, hl = "DiagnosticError" } }))
-    end)
-end)
-
-describe("queryflags span windows", function()
-    ---`path=src`: the name, the '=', then the value.
-    local spans = {
-        { start = 0, finish = 4, hl = "@keyword" },
-        { start = 4, finish = 5, hl = "@tag.delimiter" },
-        { start = 5, finish = 8, hl = "@string" },
-    }
-
-    it("keeps the spans inside the window, rebased to its start", function()
-        assert.are.same({
-            { start = 0, finish = 1, hl = "@tag.delimiter" },
-            { start = 1, finish = 4, hl = "@string" },
-        }, qf.spans_within(spans, 4, 8))
-    end)
-
-    it("clips a span reaching past an edge", function()
-        assert.are.same({
-            { start = 0, finish = 2, hl = "@keyword" },
-            { start = 2, finish = 3, hl = "@tag.delimiter" },
-            { start = 3, finish = 4, hl = "@string" },
-        }, qf.spans_within(spans, 2, 6))
-    end)
-
-    it("drops a span the window does not reach at all", function()
-        assert.are.same({}, qf.spans_within(spans, 9, 12))
-        assert.are.same({}, qf.spans_within(spans, 0, 0))
-    end)
-end)
-
 describe("queryflags completion", function()
     ---@return integer? startcol, string[] words
     local function complete(line)
