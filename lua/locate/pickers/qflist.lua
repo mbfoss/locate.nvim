@@ -196,7 +196,7 @@ function M.spec(opts)
                     ---@type locate.Picker.Item
                     table.insert(items, {
                         label_chunks = chunks,
-                        virt_line    = loc and { { loc, "LocatePath" } } or nil,
+                        virt_line    = loc and { { loc, "LocatePickerPath" } } or nil,
                         data         = data,
                     })
                 end

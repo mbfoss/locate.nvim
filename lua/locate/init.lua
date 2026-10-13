@@ -159,7 +159,7 @@ function M.pick(picker_type, prompt)
     local registry    = require("locate.registry")
     local pickertools = require("locate.base.pickertools")
     if not picker_type or picker_type == "" then
-        local keys = registry.keys()
+        local keys = registry.visible_keys()
         table.insert(keys, "resume")
         table.sort(keys)
         vim.ui.select(keys, { prompt = "Pick" }, function(choice)
@@ -197,10 +197,10 @@ end
 --- switching schemes while a picker is open (the `colorschemes` source) calls
 --- this again afterwards.
 function M.apply_highlights()
-    vim.api.nvim_set_hl(0, "LocateMatch", { default = true, link = "Visual" })
-    vim.api.nvim_set_hl(0, "LocatePath", { default = true, link = "@namespace" })
-    vim.api.nvim_set_hl(0, "LocateBufferIndicator", { default = true, link = "Special" })
-    vim.api.nvim_set_hl(0, "LocateFlagPill", { default = true, link = "Visual" })
+    vim.api.nvim_set_hl(0, "LocatePickerMatch", { default = true, link = "Visual" })
+    vim.api.nvim_set_hl(0, "LocatePickerPath", { default = true, link = "@namespace" })
+    vim.api.nvim_set_hl(0, "LocatePickerBufferIndicator", { default = true, link = "Special" })
+    vim.api.nvim_set_hl(0, "LocatePickerFlagPill", { default = true, link = "Visual" })
 end
 
 ---Optional: `:Locate` and the highlight groups are set up by

@@ -9,10 +9,10 @@ vim.g.loaded_locate = true
 -- groups are all that has to exist before the first pick, so they are written
 -- out rather than pulled in. `locate.apply_highlights()` states the same groups
 -- for the `colorschemes` source, which re-applies them after a scheme switch.
-vim.api.nvim_set_hl(0, "LocateMatch", { default = true, link = "Visual" })
-vim.api.nvim_set_hl(0, "LocatePath", { default = true, link = "@namespace" })
-vim.api.nvim_set_hl(0, "LocateBufferIndicator", { default = true, link = "Special" })
-vim.api.nvim_set_hl(0, "LocateFlagPill", { default = true, link = "Visual" })
+vim.api.nvim_set_hl(0, "LocatePickerMatch", { default = true, link = "Visual" })
+vim.api.nvim_set_hl(0, "LocatePickerPath", { default = true, link = "@namespace" })
+vim.api.nvim_set_hl(0, "LocatePickerBufferIndicator", { default = true, link = "Special" })
+vim.api.nvim_set_hl(0, "LocatePickerFlagPill", { default = true, link = "Visual" })
 
 vim.api.nvim_create_user_command("Locate", function(cmd_opts)
     require("locate.cmdline").run(cmd_opts)

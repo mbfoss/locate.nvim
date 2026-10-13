@@ -145,7 +145,7 @@ local function locations_spec(opts)
                     table.insert(picker_items, {
                         label_chunks = match.chunks,
                         score        = match.score,
-                        virt_line    = { { loc, "LocatePath" } },
+                        virt_line    = { { loc, "LocatePickerPath" } },
                         data         = {
                             filepath = ref.filename,
                             lnum     = ref.lnum,
@@ -379,7 +379,7 @@ local function calls_spec(opts)
                     table.insert(items, {
                         label_chunks = chunks,
                         score        = match.score,
-                        virt_line    = { { loc, "LocatePath" } },
+                        virt_line    = { { loc, "LocatePickerPath" } },
                         data         = {
                             filepath = entry.filepath,
                             lnum     = entry.lnum,
@@ -639,7 +639,7 @@ function M.workspace_symbols_spec(opts)
                     table.insert(items, {
                         label_chunks = chunks,
                         score        = match.score,
-                        virt_line    = { { loc, "LocatePath" } },
+                        virt_line    = { { loc, "LocatePickerPath" } },
                         data         = {
                             filepath = sym.filepath,
                             lnum     = sym.lnum,

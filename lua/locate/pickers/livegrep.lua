@@ -67,7 +67,7 @@ local function build_chunks(text, subs)
         if s > last then
             chunks[#chunks + 1] = { text:sub(last, s - 1) }
         end
-        chunks[#chunks + 1] = { text:sub(s, e), "LocateMatch" }
+        chunks[#chunks + 1] = { text:sub(s, e), "LocatePickerMatch" }
         last = e + 1
     end
     if last <= #text then
@@ -355,9 +355,9 @@ local function make_item(m, abs_path, cwd, path_width, rel_path, from_buffer)
     )
     local virt_line = {}
     if from_buffer then
-        virt_line[#virt_line + 1] = { _BUFFER_INDICATOR, "LocateBufferIndicator" }
+        virt_line[#virt_line + 1] = { _BUFFER_INDICATOR, "LocatePickerBufferIndicator" }
     end
-    virt_line[#virt_line + 1] = { location, "LocatePath" }
+    virt_line[#virt_line + 1] = { location, "LocatePickerPath" }
     local shown_text, shown_subs = trim_for_display(m.text, m.subs)
     return {
         label_chunks = build_chunks(shown_text, shown_subs),

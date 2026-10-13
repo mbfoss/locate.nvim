@@ -2,7 +2,7 @@ local M = {}
 
 ---@type table<string, locate.PickerSpec | fun(): locate.PickerSpec?>
 local _pickers = {
-    parser_test           = function() return require("locate.pickers.parsertest").spec() end,
+    _parser_test          = function() return require("locate.pickers.parsertest").spec() end,
     files                 = function() return require("locate.pickers.files").spec() end,
     live_grep             = function() return require("locate.pickers.livegrep").spec() end,
     recent_files          = function() return require("locate.pickers.recentfiles").spec() end,
@@ -26,8 +26,8 @@ local _pickers = {
     lsp_outgoing_calls    = function() return require("locate.pickers.lsp").outgoing_calls_spec() end,
     lsp_document_symbols  = function() return require("locate.pickers.lsp").document_symbols_spec() end,
     lsp_workspace_symbols = function() return require("locate.pickers.lsp").workspace_symbols_spec() end,
-    document_diagnostics  = function() return require("locate.pickers.diagnosics").spec({ bufnr = 0 }) end,
-    workspace_diagnostics = function() return require("locate.pickers.diagnosics").spec() end,
+    document_diagnostics  = function() return require("locate.pickers.diagnostics").spec({ bufnr = 0 }) end,
+    workspace_diagnostics = function() return require("locate.pickers.diagnostics").spec() end,
     buffers               = function() return require("locate.pickers.buffers").spec() end,
     windows               = function() return require("locate.pickers.windows").spec() end,
     registers             = function() return require("locate.pickers.registers").spec() end,
@@ -97,6 +97,11 @@ end
 ---@return string[]
 function M.keys()
     return vim.tbl_keys(_pickers)
+end
+
+---@return string[]
+function M.visible_keys()
+    return vim.tbl_filter(function(name) return name:sub(1, 1) ~= "_" end, vim.tbl_keys(_pickers))
 end
 
 ---@param name string

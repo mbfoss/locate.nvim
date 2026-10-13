@@ -283,11 +283,12 @@ Naming:
 
 | Group | Links to |
 | --- | --- |
-| `LocateMatch` | `Visual` |
-| `LocatePath` | `@namespace` |
-| `LocateBufferIndicator` | `Special` |
-| `LocateFlagPill` | `Visual` |
-| `LocateFlagPillEdge` | derived: the background of `LocateFlagPill` |
+| `LocatePickerMatch` | `Visual` |
+| `LocatePickerPath` | `@namespace` |
+| `LocatePickerBufferIndicator` | `Special` |
+| `LocatePickerFlagPill` | `Visual` |
+| `LocatePickerFlagPillEdge` | derived: the background of `LocatePickerFlagPill` |
+| `LocatePickerRule` | derived: the foreground of `NonText` |
 
 Filetype icons in `files` and `config_files` come from whichever icon provider
 is installed. locate ships no icon data and tries, in order, `nvim-web-icon`,

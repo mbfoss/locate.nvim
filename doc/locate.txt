@@ -301,22 +301,17 @@ with it.
 ==============================================================================
 5. Writing your own source                             *locate-custom-sources*
 
+Minimal example
+
 >lua
     require("locate").register("my_source", {
       prompt     = "My source",
       finder     = function(query, flags, fetch_opts, callback)
         callback({ { label_chunks = { { "an item" } }, data = { ... } } })
       end,
-      on_cursor  = function(data) ... end,
       on_confirm = function(data) ... end,
     })
 <
-
-`on_cursor` fires as the highlight moves onto an item — stepping through the
-list, or a narrower query leaving a new item on top. The picker’s opening row
-is skipped, so a source can act on it without a picker opened and closed
-changing anything. The `colorschemes` source applies each scheme this way: the
-scheme is its own preview, so there is nothing to render beside the list.
 
 - The spec may also be a function returning a spec, built lazily on each open.
 - Every field: the `locate.PickerSpec` annotation in
@@ -335,13 +330,22 @@ Naming:
 ==============================================================================
 6. Highlights                                              *locate-highlights*
 
-  Group                   Links to
-  ----------------------- -------------------------------------------
-  LocateMatch             Visual
-  LocatePath              @namespace
-  LocateBufferIndicator   Special
-  LocateFlagPill          Visual
-  LocateFlagPillEdge      derived: the background of LocateFlagPill
+  -----------------------------------------------------------------------
+  Group                               Links to
+  ----------------------------------- -----------------------------------
+  LocatePickerMatch                   Visual
+
+  LocatePickerPath                    @namespace
+
+  LocatePickerBufferIndicator         Special
+
+  LocatePickerFlagPill                Visual
+
+  LocatePickerFlagPillEdge            derived: the background of
+                                      LocatePickerFlagPill
+
+  LocatePickerRule                    derived: the foreground of NonText
+  -----------------------------------------------------------------------
 Filetype icons in `files` and `config_files` come from whichever icon provider
 is installed. locate ships no icon data and tries, in order, `nvim-web-icon`,
 keystone.nvim <https://github.com/mbfoss/keystone.nvim> (`keystone.icons`) and

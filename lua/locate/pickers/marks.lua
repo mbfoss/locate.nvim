@@ -116,7 +116,7 @@ function M.spec()
                     -- the sort above groups them the way that letter is read.
                     table.insert(items, {
                         label_chunks = chunks,
-                        virt_line    = { { strutil.crop_for_ui(loc, fetch_opts.virt_line_width, true), "LocatePath" } },
+                        virt_line    = { { strutil.crop_for_ui(loc, fetch_opts.virt_line_width, true), "LocatePickerPath" } },
                         data         = {
                             bufnr    = entry.bufnr,
                             filepath = entry.filepath,

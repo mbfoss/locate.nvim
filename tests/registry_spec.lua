@@ -337,7 +337,7 @@ describe("colorschemes", function()
         assert.equals("blue", vim.g.colors_name)
         -- `:colorscheme` runs `:highlight clear`, so the picker's own groups have
         -- to be put back for the list to stay readable.
-        assert.is_true(next(vim.api.nvim_get_hl(0, { name = "LocateMatch" })) ~= nil)
+        assert.is_true(next(vim.api.nvim_get_hl(0, { name = "LocatePickerMatch" })) ~= nil)
 
         spec.on_confirm(nil)
         assert.equals(original, vim.g.colors_name)

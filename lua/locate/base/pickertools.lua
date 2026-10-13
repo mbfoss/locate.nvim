@@ -10,7 +10,7 @@ local function _build_highlight_chunks(text, positions)
         return { { text } }
     end
 
-    local hl = "LocateMatch"
+    local hl = "LocatePickerMatch"
     local chunks = {}
     local pos_map = {}
     for _, p in ipairs(positions) do pos_map[p] = true end
