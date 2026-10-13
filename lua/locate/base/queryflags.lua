@@ -219,7 +219,7 @@ local function _scan(str, defs)
     local open_error = nil
 
     while i <= len do
-        while i <= len and str:sub(i, i):match("%s") do i = i + 1 end
+        while i <= len and _is_space(str:byte(i)) do i = i + 1 end
         if i > len then break end
 
         if open_error then
@@ -581,7 +581,7 @@ end
 ---@return locate.queryflags.Completions?
 function M.get_completions(schema, line, cursor_byte)
     local char_after = line:sub(cursor_byte + 1, cursor_byte + 1)
-    if char_after ~= "" and not char_after:match("%s") then return nil end
+    if char_after ~= "" and not _is_space(char_after:byte()) then return nil end
 
     local defs   = _build_map(schema)
     local before = line:sub(1, cursor_byte)

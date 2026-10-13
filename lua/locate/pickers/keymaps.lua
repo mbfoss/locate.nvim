@@ -27,27 +27,24 @@ local function format_preview(km)
         return tostring(val)
     end
 
-    local function add(lines, label, value)
-        local v = fmt(value)
-        if v and v ~= "" then
-            table.insert(lines, string.format("- %s: %s", label, v))
-        end
+    local lines = {}
+    local function add(label, value)
+        pickertools.preview_field(lines, label, value, fmt)
     end
 
-    local lines = {}
-    add(lines, "Mode", km.mode)
-    add(lines, "LHS", km.lhs)
-    add(lines, "Description", km.desc)
-    add(lines, "RHS", km.rhs)
-    add(lines, "Buffer", km.buf)
-    add(lines, "Abbreviation", km.abbr)
-    add(lines, "NoRemap", km.noremap)
-    add(lines, "Nowait", km.nowait)
-    add(lines, "Silent", km.silent)
-    add(lines, "Script", km.script)
-    add(lines, "Expr", km.expr)
-    add(lines, "SID", km.sid)
-    add(lines, "Line", km.lnum)
+    add("Mode", km.mode)
+    add("LHS", km.lhs)
+    add("Description", km.desc)
+    add("RHS", km.rhs)
+    add("Buffer", km.buf)
+    add("Abbreviation", km.abbr)
+    add("NoRemap", km.noremap)
+    add("Nowait", km.nowait)
+    add("Silent", km.silent)
+    add("Script", km.script)
+    add("Expr", km.expr)
+    add("SID", km.sid)
+    add("Line", km.lnum)
 
     table.insert(lines, "")
     table.insert(lines, "Action:")

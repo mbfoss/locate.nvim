@@ -26,12 +26,12 @@ local _type_flags  = {
 ---@alias locate.qflist_filter 'all'|"errors"|"warnings"|"info"
 ---@alias locate.qflist_type 'quickfix'|"loclist"
 
-local _type_prefix = {
-    E = { "󰅚 ", "DiagnosticError" },
-    W = { "󰀪 ", "DiagnosticWarn" },
-    I = { "󰋽 ", "DiagnosticInfo" },
-    N = { "󰌶 ", "DiagnosticHint" },
-}
+-- The glyph and highlight of each type code, the glyph padded so that the text
+-- it precedes starts in the same column whatever the item's type.
+local _type_prefix = {}
+for code, icon in pairs(pickertools.SEVERITY_ICONS) do
+    _type_prefix[code] = { icon[1] .. " ", icon[2] }
+end
 
 ---@param qf any
 ---@param filter locate.qflist_filter

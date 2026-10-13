@@ -287,7 +287,7 @@ Naming:
 | `LocatePickerPath` | `@namespace` |
 | `LocatePickerBufferIndicator` | `Special` |
 | `LocatePickerFlagPill` | `Visual` |
-| `LocatePickerFlagPillEdge` | derived: the background of `LocatePickerFlagPill` |
+| `LocatePickerFlagPillEdge` | derived: the colour `LocatePickerFlagPill` is filled with (its foreground where the group is reversed) |
 | `LocatePickerRule` | derived: the foreground of `NonText` |
 
 Filetype icons in `files` and `config_files` come from whichever icon provider

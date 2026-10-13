@@ -369,5 +369,31 @@ function M.make_history_provider(name, opts)
     return provider
 end
 
+-- The glyph and highlight group each severity is drawn with, keyed by the one
+-- letter `:copen` and the quickfix `type` field use. The diagnostics picker and
+-- the quickfix list both draw their icons from here, so the four pairs live in
+-- one place; the quickfix list pads the glyph to keep the text after it aligned.
+---@type table<string, {[1]:string,[2]:string}>
+M.SEVERITY_ICONS = {
+    E = { "󰅚", "DiagnosticError" },
+    W = { "󰀪", "DiagnosticWarn" },
+    I = { "󰋽", "DiagnosticInfo" },
+    N = { "󰌶", "DiagnosticHint" },
+}
+
+---Append one `- Label: value` row to a preview's `lines`, unless the value is
+---absent or empty. `fmt` turns the raw field into text, or nil to drop it, and
+---is the caller's own: a keymap's `0`/`1` flags do not read like an
+---autocommand's booleans.
+---@param lines string[]
+---@param label string
+---@param value any
+---@param fmt fun(value:any):string?
+function M.preview_field(lines, label, value, fmt)
+    local v = fmt(value)
+    if v and v ~= "" then
+        table.insert(lines, string.format("- %s: %s", label, v))
+    end
+end
 
 return M

@@ -19,18 +19,7 @@ local SEV_MAP = {
 }
 
 ---@param severity vim.diagnostic.Severity
----@return string, string
-local function get_severity_info(severity)
-    local map = {
-        [vim.diagnostic.severity.ERROR] = { "󰅚", "DiagnosticError" },
-        [vim.diagnostic.severity.WARN]  = { "󰀪", "DiagnosticWarn"  },
-        [vim.diagnostic.severity.INFO]  = { "󰋽", "DiagnosticInfo"  },
-        [vim.diagnostic.severity.HINT]  = { "󰌶", "DiagnosticHint"  },
-    }
-    local res = map[severity] or { "󰠠", "Comment" }
-    return res[1], res[2]
-end
-
+---@return string
 local function severity_to_qf_type(severity)
     if severity == vim.diagnostic.severity.ERROR then return "E"
     elseif severity == vim.diagnostic.severity.WARN  then return "W"
@@ -38,6 +27,17 @@ local function severity_to_qf_type(severity)
     elseif severity == vim.diagnostic.severity.HINT  then return "N"
     end
     return ""
+end
+
+---The glyph and highlight an item of this severity is drawn with. The type code
+---is the one a quickfix entry carries for the same severity, so both pickers
+---draw from the shared table; an unrecognised severity gets a plain comment mark.
+---@param severity vim.diagnostic.Severity
+---@return string, string
+local function get_severity_info(severity)
+    local icon = pickertools.SEVERITY_ICONS[severity_to_qf_type(severity)]
+    if icon then return icon[1], icon[2] end
+    return "󰠠", "Comment"
 end
 
 ---@param opts {bufnr:number?}?

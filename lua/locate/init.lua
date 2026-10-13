@@ -159,9 +159,7 @@ function M.pick(picker_type, prompt)
     local registry    = require("locate.registry")
     local pickertools = require("locate.base.pickertools")
     if not picker_type or picker_type == "" then
-        local keys = registry.visible_keys()
-        table.insert(keys, "resume")
-        table.sort(keys)
+        local keys = registry.pickable_keys()
         vim.ui.select(keys, { prompt = "Pick" }, function(choice)
             if choice then M.pick(choice) end
         end)

@@ -1,6 +1,7 @@
 local Spinner            = require("locate.util.Spinner")
 local timer              = require("locate.util.timer")
 local ui                 = require("locate.util.ui")
+local strutil            = require("locate.util.strutil")
 local floatwin           = require("locate.util.floatwin")
 local layouts            = require("locate.base.layouts")
 local queryflags         = require("locate.base.queryflags")
@@ -252,42 +253,7 @@ local function _apply_preview_pos(win, buf, pos, pos_end)
 	})
 end
 
----@param msg string
----@param width number
----@param height number
----@return string[]
-local function _center_for_previewer(msg, width, height)
-	-- Display cells, not bytes: an error message naming a non-ASCII path would
-	-- otherwise be pushed off centre by one column per multibyte character.
-	local pad_left = math.max(0, math.floor((width - vim.fn.strdisplaywidth(msg)) / 2))
-	local centered = string.rep(" ", pad_left) .. msg
-	-- `height` is the content area, and the message is one of its rows.
-	local pad_top = math.max(0, math.floor((height - 1) / 2))
-
-	local lines = {}
-	for i = 1, pad_top do lines[i] = "" end
-	lines[pad_top + 1] = centered
-	return lines
-end
-
-
 local _active_picker = nil
-
----@param a table
----@param b table
----@return boolean
-local function _flags_equal(a, b)
-	for k, v in pairs(a) do
-		if type(v) == "table" then
-			if type(b[k]) ~= "table" or #v ~= #b[k] then return false end
-			for i, x in ipairs(v) do if b[k][i] ~= x then return false end end
-		elseif b[k] ~= v then
-			return false
-		end
-	end
-	for k in pairs(b) do if a[k] == nil then return false end end
-	return true
-end
 
 ---The two prompt sections as the history file keeps them. They are written
 ---apart, so one line has to carry both: an unflagged entry stays the plain
@@ -317,29 +283,17 @@ end
 ---space, and the ends lose theirs. A '\' takes the character after it along
 ---untouched, so the space in `dir=my\ src` is part of the value, not a gap
 ---between two tokens, and stays exactly as written.
+---
+---The tokens are the parser's, so the two agree on what separates a flag: this
+---only rewrites the gaps between them, and leaves each one's bytes as written.
 ---@param text string
 ---@return string
 local function _tidy_flags(text)
-	local out, i, n = {}, 1, #text
-	local gap = false
-	while i <= n do
-		local c = text:sub(i, i)
-		if c == "\\" then
-			if gap and #out > 0 then out[#out + 1] = " " end
-			gap = false
-			out[#out + 1] = text:sub(i, i + 1)
-			i = i + 2
-		elseif c:match("%s") then
-			gap = true
-			i = i + 1
-		else
-			if gap and #out > 0 then out[#out + 1] = " " end
-			gap = false
-			out[#out + 1] = c
-			i = i + 1
-		end
+	local parts = {}
+	for _, span in ipairs(queryflags.tokens(text)) do
+		parts[#parts + 1] = text:sub(span[1] + 1, span[2])
 	end
-	return table.concat(out)
+	return table.concat(parts, " ")
 end
 
 --- Rank fetched items by match quality, best first.
@@ -1405,7 +1359,7 @@ function Picker:update_preview()
 			elseif content then
 				lines = content
 			else
-				lines = _center_for_previewer(preview.error_msg or "No preview", preview_width, preview_height)
+				lines = strutil.center_in_box(preview.error_msg or "No preview", preview_width, preview_height)
 			end
 			if self._vbuf then
 				vim.bo[self._vbuf].modifiable = true
@@ -1528,8 +1482,8 @@ function Picker:set_items(items)
 	local lines      = tbl_new(count, 0) ---@type string[]
 
 	for row_idx = 1, count do
-		local item          = items[row_idx]
-		local chunks        = item.label_chunks
+		local item   = items[row_idx]
+		local chunks = item.label_chunks
 
 		list_items[row_idx] = {
 			data = item.data,
@@ -1537,19 +1491,11 @@ function Picker:set_items(items)
 			virt_line = item.virt_line,
 		}
 
-		if not chunks or #chunks == 0 then
-			lines[row_idx] = prefix
-		elseif #chunks == 1 then
-			lines[row_idx] = prefix .. _one_line(chunks[1][1] or "")
-		else
-			local parts = tbl_new(#chunks + 1, 0)
-			parts[1] = prefix
-			for i = 1, #chunks do
-				local text = chunks[i][1]
-				if text and #text > 0 then parts[#parts + 1] = _one_line(text) end
-			end
-			lines[row_idx] = table.concat(parts)
-		end
+		-- Whatever the chunks are, the line is their text behind the prefix.
+		-- `_item_label` joins them and swaps any newline in them for a space,
+		-- byte for byte, so the columns the highlights are placed at still line
+		-- up with the text.
+		lines[row_idx] = prefix .. _item_label(item)
 	end
 
 	self._list_items = list_items
@@ -1650,7 +1596,7 @@ function Picker:run_fetch()
 	-- Parse before touching the in-flight fetch or the preview: an edit that
 	-- leaves the parsed query unchanged (a trailing space, doubled separators)
 	-- must be a no-op, not a cancel-and-clear of results that still apply.
-	if clean_query == self._last_clean_query and _flags_equal(flags, self._last_flags or {}) then
+	if clean_query == self._last_clean_query and vim.deep_equal(flags, self._last_flags or {}) then
 		return
 	end
 	self._last_clean_query = clean_query

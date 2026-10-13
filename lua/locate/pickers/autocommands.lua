@@ -59,23 +59,20 @@ local function format_preview(ac, decl)
         return tostring(val)
     end
 
-    local function add(lines, label, value)
-        local v = fmt(value)
-        if v and v ~= "" then
-            table.insert(lines, string.format("- %s: %s", label, v))
-        end
+    local lines = {}
+    local function add(label, value)
+        pickertools.preview_field(lines, label, value, fmt)
     end
 
-    local lines = {}
-    add(lines, "ID",          ac.id)
-    add(lines, "Group",       ac.group_name or ac.group)
-    add(lines, "Event",       ac.event)
-    add(lines, "Pattern",     ac.pattern or "*")
-    add(lines, "Description", ac.desc)
-    add(lines, "Once",        ac.once)
-    add(lines, "Buflocal",    ac.buflocal)
+    add("ID",          ac.id)
+    add("Group",       ac.group_name or ac.group)
+    add("Event",       ac.event)
+    add("Pattern",     ac.pattern or "*")
+    add("Description", ac.desc)
+    add("Once",        ac.once)
+    add("Buflocal",    ac.buflocal)
     ---@diagnostic disable-next-line: undefined-field
-    add(lines, "Buffer",      ac.buffer)
+    add("Buffer",      ac.buffer)
 
     table.insert(lines, "")
     table.insert(lines, "Action:")

@@ -135,9 +135,7 @@ function M.complete(arg_lead, cmd_line, cursor_pos)
     local before   = cmd_line:sub(1, cursor_pos)
     local parts    = vim.split(before, "%s+", { trimempty = true })
     if #parts <= 1 or (#parts == 2 and not before:match("%s$")) then
-        local keys = registry.visible_keys()
-        table.insert(keys, "resume")
-        table.sort(keys)
+        local keys = registry.pickable_keys()
         return vim.tbl_filter(function(k) return vim.startswith(k, arg_lead) end, keys)
     end
 

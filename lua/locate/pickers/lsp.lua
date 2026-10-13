@@ -68,6 +68,24 @@ for _, name in ipairs(SYMBOL_KINDS) do
     })
 end
 
+---The kinds the kind booleans in `flags` select, as a set, and whether any of
+---them was set at all. They are a union: `--Function --Class` keeps both, and
+---none set keeps every kind, so the caller has to tell those two apart.
+---@param flags table<string, any>
+---@return table<string, boolean> kinds
+---@return boolean any
+local function _selected_kinds(flags)
+    local kinds = {}
+    local any = false
+    for _, name in ipairs(SYMBOL_KINDS) do
+        if flags[name] then
+            kinds[name] = true
+            any = true
+        end
+    end
+    return kinds, any
+end
+
 ---@class locate.lsp.LocationsOpts
 ---@field method string LSP request method, e.g. "textDocument/definition"
 ---@field prompt string
@@ -489,17 +507,8 @@ function M.document_symbols_spec(opts)
             end)
         end,
         finder         = function(query, flags, fetch_opts, callback)
-            local data       = fetch_opts.data
-            -- Kind booleans select a union: "--Function --Class" keeps both,
-            -- none set keeps every kind.
-            local flag_kinds = {}
-            local any_kind   = false
-            for _, name in ipairs(SYMBOL_KINDS) do
-                if flags[name] then
-                    flag_kinds[name] = true
-                    any_kind         = true
-                end
-            end
+            local data = fetch_opts.data
+            local flag_kinds, any_kind = _selected_kinds(flags)
 
             local filtered = {}
             for _, item in ipairs(data.items) do
@@ -610,14 +619,7 @@ function M.workspace_symbols_spec(opts)
             end)
         end,
         finder         = function(query, flags, fetch_opts, callback)
-            local flag_kinds = {}
-            local any_kind   = false
-            for _, name in ipairs(SYMBOL_KINDS) do
-                if flags[name] then
-                    flag_kinds[name] = true
-                    any_kind         = true
-                end
-            end
+            local flag_kinds, any_kind = _selected_kinds(flags)
 
             local items = {}
             for _, sym in ipairs(fetch_opts.data.symbols) do

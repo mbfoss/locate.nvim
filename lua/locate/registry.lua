@@ -104,6 +104,17 @@ function M.visible_keys()
     return vim.tbl_filter(function(name) return name:sub(1, 1) ~= "_" end, vim.tbl_keys(_pickers))
 end
 
+---The names a user may ask for by name: every visible source, plus the reserved
+---ones `M.pick` answers itself, sorted so a menu and a completion list come out
+---in the same order.
+---@return string[]
+function M.pickable_keys()
+    local keys = M.visible_keys()
+    vim.list_extend(keys, vim.tbl_keys(_reserved))
+    table.sort(keys)
+    return keys
+end
+
 ---@param name string
 ---@return locate.PickerSpec?
 function M.get(name)

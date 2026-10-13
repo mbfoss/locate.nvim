@@ -38,6 +38,29 @@ describe("registry", function()
     end)
 end)
 
+describe("registry.pickable_keys", function()
+    it("offers every visible source and the names locate answers itself", function()
+        local keys = registry.pickable_keys()
+        assert.is_true(vim.tbl_contains(keys, "files"))
+        -- `resume` is reserved rather than registered, and `M.pick` answers it
+        -- without the registry, but a user can still ask for it by name.
+        assert.is_true(vim.tbl_contains(keys, "resume"))
+    end)
+
+    it("leaves out the underscore sources", function()
+        for _, name in ipairs(registry.pickable_keys()) do
+            assert(name:sub(1, 1) ~= "_", name .. " should not be offered by name")
+        end
+    end)
+
+    it("is the visible keys plus resume, sorted", function()
+        local want = registry.visible_keys()
+        table.insert(want, "resume")
+        table.sort(want)
+        assert.are.same(want, registry.pickable_keys())
+    end)
+end)
+
 describe("registry.register", function()
     local SPEC = { prompt = "test", finder = function() end, on_confirm = function() end }
 
