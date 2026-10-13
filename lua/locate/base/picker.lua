@@ -605,6 +605,11 @@ end
 function Picker:maybe_autocomplete()
 	if self._closed or self.opts.auto_complete_flags == false then return end
 	if self._mode ~= "flags" then return end
+
+	-- Without "noselect" in 'completeopt' Vim highlights the first candidate and
+	-- writes it into the line as soon as a menu opens.
+	if not vim.o.completeopt:find("noselect", 1, true) then return end
+
 	if vim.fn.pumvisible() == 1 then return end
 	if vim.api.nvim_get_current_buf() ~= self._pbuf then return end
 	if vim.api.nvim_get_mode().mode:sub(1, 1) ~= "i" then return end

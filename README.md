@@ -49,7 +49,7 @@ vim.pack.add({ "https://github.com/mbfoss/locate.nvim" })
 **lazy.nvim**
 
 ```lua
-{ "mbfoss/locate.nvim" }
+{ "mbfoss/locate.nvim", lazy = false }
 ```
 
 ## Configuring the picker <!-- tag: configuration -->
