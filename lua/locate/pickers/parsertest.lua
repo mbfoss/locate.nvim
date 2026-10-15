@@ -33,9 +33,9 @@ end
 
 ---One row per fact of the parse, in reading order: the query, then the flags in
 ---schema order, then the errors as `parse` sorted them.
----@param parsed locate.Picker.ParsedPrompt
+---@param prompt_details locate.Picker.PromptDetails
 ---@return locate.Picker.Item[]
-local function rows(parsed)
+local function rows(prompt_details)
     local items = {}
 
     ---The kind names the column, so it is the only thing styled; the fact
@@ -51,16 +51,16 @@ local function rows(parsed)
         })
     end
 
-    add("query", ("%q"):format(parsed.query))
+    add("query", ("%q"):format(prompt_details.query))
 
     for _, def in ipairs(FLAGS) do
-        local value = parsed.flags[def.name]
+        local value = prompt_details.flags[def.name]
         if value ~= nil then
             add("flag", ("%s = %s"):format(def.name, show(value)))
         end
     end
 
-    for _, err in ipairs(parsed.errors) do
+    for _, err in ipairs(prompt_details.errors) do
         add("error", ("[%d,%d)%s"):format(
             err.start, err.finish, err.settled and " settled" or ""), err.msg)
     end
@@ -75,13 +75,13 @@ function M.spec()
         flags          = FLAGS,
         enable_preview = true,
         finder         = function(query, flags, opts, callback)
-            -- `parsed` is what the prompt was read as; without it (a caller
-            -- driving the finder directly) the arguments are all there is.
-            local parsed = opts.parsed
+            -- `prompt_details` is what the prompt was read as; without it (a
+            -- caller driving the finder directly) the arguments are all there is.
+            local prompt_details = opts.prompt_details
                 or { query = query, flags = flags, errors = {} }
-            local dump   = vim.inspect(parsed)
+            local dump           = vim.inspect(prompt_details)
 
-            local items = rows(parsed)
+            local items = rows(prompt_details)
             for _, item in ipairs(items) do item.data.dump = dump end
             callback(items)
         end,

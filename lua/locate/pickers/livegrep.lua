@@ -5,99 +5,13 @@ local strutil          = require("locate.util.strutil")
 local fsutil           = require("locate.util.fsutil")
 local spawn            = require("locate.util.spawn")
 local pickertools      = require("locate.base.pickertools")
-local config           = require("locate.config")
-
----The ripgrep executable: `rg_path` when set, otherwise `rg` off the `PATH`.
----Read per call so a `setup()` after this module loaded is honoured.
----@return string
-local function rg_exe()
-    local path = config.current.rg_path
-    if path and path ~= "" then return path end
-    return "rg"
-end
+local rgutil           = require("locate.base.rgutil")
 
 --- High-water mark (bytes) for stdin backpressure: buffers are fed to rg ahead
 --- of itself for throughput, but once its stdin write queue is backed up past
 --- this we wait for it to drain before pushing more, so buffered memory stays
 --- bounded even with very large or very many open buffers.
 local _MAX_WRITE_QUEUE = 1024 * 1024
-
----@class locate.rgutil.Submatch
----@field s    integer  -- 0-indexed byte start in the line
----@field e    integer  -- 0-indexed byte end (exclusive) in the line
-
----@class locate.rgutil.Match
----@field path string
----@field lnum integer
----@field col  integer  -- 1-indexed byte column of the first submatch
----@field text string
----@field subs locate.rgutil.Submatch[]
-
----@param line string
----@return locate.rgutil.Match?
-local function parse_match(line)
-    local ok, decoded = pcall(vim.json.decode, line)
-    if not ok or not decoded or decoded.type ~= "match" then return end
-
-    local data = decoded.data
-    local path = data.path and data.path.text
-    if not path then return end
-
-    local text = data.lines.text or data.lines.bytes or ""
-    text       = text:gsub("\r?\n$", "")
-
-    local subs = {}
-    for _, m in ipairs(data.submatches or {}) do
-        subs[#subs + 1] = { s = m.start, e = m["end"] }
-    end
-
-    local col = (subs[1] and subs[1].s + 1) or 1
-    return { path = path, lnum = data.line_number, col = col, text = text, subs = subs }
-end
-
----@param text string
----@param subs locate.rgutil.Submatch[]
----@return {[1]:string,[2]:string?}[]
-local function build_chunks(text, subs)
-    local chunks = {}
-    local last   = 1
-    for _, sm in ipairs(subs) do
-        local s = sm.s + 1
-        local e = sm.e
-        if s > last then
-            chunks[#chunks + 1] = { text:sub(last, s - 1) }
-        end
-        chunks[#chunks + 1] = { text:sub(s, e), "LocatePickerMatch" }
-        last = e + 1
-    end
-    if last <= #text then
-        chunks[#chunks + 1] = { text:sub(last) }
-    end
-    return chunks
-end
-
---- Strip surrounding whitespace for display, shifting the submatch offsets to
---- match. Trimming never eats into a submatch (a query can match whitespace),
---- so whitespace that is part of the result is kept. Display only; `data.subs`
---- keeps the original offsets into the untrimmed line.
----@param text string
----@param subs locate.rgutil.Submatch[]
----@return string text, locate.rgutil.Submatch[] subs
-local function trim_for_display(text, subs)
-    local lead = #text:match("^%s*")
-    local tail = #text - #text:match("%s*$")
-    for _, sm in ipairs(subs) do
-        if sm.s < lead then lead = sm.s end
-        if sm.e > tail then tail = sm.e end
-    end
-    if lead == 0 and tail == #text then return text, subs end
-
-    local shifted = {}
-    for i, sm in ipairs(subs) do
-        shifted[i] = { s = sm.s - lead, e = sm.e - lead }
-    end
-    return text:sub(lead + 1, tail), shifted
-end
 
 ---@class locate.livegrep.opts
 ---@field max_results number?
@@ -106,72 +20,42 @@ end
 ---@field cwd         string
 ---@field max_results number?
 
---- rg's file types (`rg --type-list`), parsed once per session: `{ lua = { "*.lua" }, … }`.
----@type table<string, string[]>?
-local _rg_types
-
----@return table<string, string[]>
-local function rg_types()
-    if _rg_types then return _rg_types end
-
-    local types = {}
-    local exe   = rg_exe()
-    if vim.fn.executable(exe) == 1 then
-        local res = vim.system({ exe, "--no-config", "--type-list" }, { text = true }):wait()
-        if res.code == 0 then
-            for line in vim.gsplit(res.stdout or "", "\n", { trimempty = true }) do
-                local name, globs = line:match("^([^:]+):%s*(.+)$")
-                if name then
-                    local list = {}
-                    for g in vim.gsplit(globs, ",", { trimempty = true }) do
-                        list[#list + 1] = vim.trim(g)
-                    end
-                    types[name] = list
-                end
-            end
-        end
-    end
-
-    _rg_types = types
-    return types
-end
-
----@param partial string
----@return string[]
-local function complete_type(partial)
-    local names = vim.tbl_keys(rg_types())
-    table.sort(names)
-    return vim.tbl_filter(function(n) return vim.startswith(n, partial) end, names)
-end
-
+---What to search: the flags only a tree has any use for. Kept apart from
+---rgutil's, so a search with no tree to walk takes those alone.
 ---@type locate.queryflags.FlagDef[]
-local FLAGS = {
-    { name = "dir",       type = "value",   complete = "dir", slot = "path",               desc = "search root directory" },
-    { name = "filter",    type = "value",   multi = true,     slot = "glob",               desc = "glob filter: *.txt, !*.lua, **/dir/**" },
-    { name = "type",      type = "value",   multi = true,     slot = "name",               complete = complete_type,                      desc = "rg file type: lua, rust, !md (see rg --type-list)" },
-    { name = "regex",     type = "boolean", desc = "enable regex mode" },
-    { name = "case",      type = "boolean", desc = "case-sensitive (default: smart case)" },
-    { name = "nocase",    type = "boolean", desc = "case-insensitive (default: smart case)" },
-    { name = "word",      type = "boolean", desc = "match whole words only" },
-    { name = "line",      type = "boolean", desc = "match whole lines only" },
-    { name = "invert",    type = "boolean", desc = "show lines that do NOT match" },
+local TARGET_FLAGS = {
+    { name = "dir",       type = "value",   complete = "dir", slot = "path", desc = "search root directory" },
+    { name = "filter",    type = "value",   multi = true,     slot = "glob", desc = "glob filter: *.txt, !*.lua, **/dir/**" },
+    { name = "type",      type = "value",   multi = true,     slot = "name", complete = rgutil.complete_type, desc = "rg file type: lua, rust, !md (see rg --type-list)" },
+}
+
+---How to walk it: the flags rg's own traversal reads.
+---@type locate.queryflags.FlagDef[]
+local WALK_FLAGS = {
     { name = "follow",    type = "boolean", desc = "follow symlinks" },
     { name = "hidden",    type = "boolean", desc = "include hidden (dotfiles)" },
     { name = "no-ignore", type = "boolean", desc = "disable .gitignore / .ignore rules" },
     { name = "max-depth", type = "value",   slot = "n", desc = "max directory depth to descend" },
 }
 
+--- The schema the picker offers, in the order the flags read: where to search,
+--- then what to match there, then how to walk it.
+---@type locate.queryflags.FlagDef[]
+local FLAGS = {}
+vim.list_extend(FLAGS, TARGET_FLAGS)
+vim.list_extend(FLAGS, rgutil.MATCH_FLAGS)
+vim.list_extend(FLAGS, WALK_FLAGS)
 
---- Common rg flags shared by the disk and in-buffer searches. Excludes globs,
---- the query, and the search target (those differ per search).
----@param parsed locate.Picker.ParsedPrompt
----@return string[] args
-local function build_rg_base(parsed)
-    local flags = parsed.flags
-    -- --no-config: the user's RIPGREP_CONFIG_PATH must not change the flags
-    -- this picker depends on (--json output, match semantics).
-    local args  = { "--no-config", "--json", "--no-heading", "--glob-case-insensitive" }
+--- Directory search. Disk matches for files that are open in a buffer are
+--- dropped by the caller (post-filter) so their in-memory versions take
+--- priority: cheaper and more robust than emitting a glob per open file.
+---@param prompt_details locate.Picker.PromptDetails
+---@return string[] cmd
+local function build_rg_dir_cmd(prompt_details)
+    local flags = prompt_details.flags
+    local args  = rgutil.build_cmd(prompt_details)
 
+    -- A walk is the only thing here with anything to follow, hide or ignore.
     if flags.follow then
         table.insert(args, "--follow")
     end
@@ -184,47 +68,13 @@ local function build_rg_base(parsed)
         table.insert(args, "--no-ignore")
     end
 
-    if flags.case then
-        table.insert(args, "--case-sensitive")
-    elseif flags.nocase then
-        table.insert(args, "--ignore-case")
-    else
-        table.insert(args, "--smart-case")
-    end
-
-    if not flags.regex then
-        table.insert(args, "--fixed-strings")
-    end
-
-    if flags.word then
-        table.insert(args, "--word-regexp")
-    end
-
-    if flags.line then
-        table.insert(args, "--line-regexp")
-    end
-
-    if flags.invert then
-        table.insert(args, "--invert-match")
-    end
-
-    return args
-end
-
---- Directory search. Disk matches for files that are open in a buffer are
---- dropped by the caller (post-filter) so their in-memory versions take
---- priority: cheaper and more robust than emitting a glob per open file.
----@param parsed locate.Picker.ParsedPrompt
----@return string[] cmd
-local function build_rg_dir_cmd(parsed)
-    local args = build_rg_base(parsed)
     table.insert(args, "--sort")
     table.insert(args, "path")
-    for _, g in ipairs(parsed.flags["filter"] or {}) do
+    for _, g in ipairs(flags["filter"] or {}) do
         table.insert(args, "-g")
         table.insert(args, g)
     end
-    for _, t in ipairs(parsed.flags["type"] or {}) do
+    for _, t in ipairs(flags["type"] or {}) do
         if t:sub(1, 1) == "!" then
             table.insert(args, "--type-not")
             table.insert(args, t:sub(2))
@@ -233,15 +83,15 @@ local function build_rg_dir_cmd(parsed)
             table.insert(args, t)
         end
     end
-    local depth = tonumber(parsed.flags["max-depth"])
+    local depth = tonumber(flags["max-depth"])
     if depth then
         table.insert(args, "--max-depth")
         table.insert(args, tostring(math.floor(depth)))
     end
     table.insert(args, "--")
-    table.insert(args, parsed.query)
+    table.insert(args, prompt_details.query)
     table.insert(args, ".")
-    return vim.list_extend({ rg_exe() }, args)
+    return args
 end
 
 --- Compile a glob list, dropping any that fail (the prompt is compiled on every
@@ -283,7 +133,7 @@ end
 local function compile_type_globs(types)
     if not types or #types == 0 then return nil, nil end
 
-    local known = rg_types()
+    local known = rgutil.types()
     local include, exclude = {}, {}
     for _, t in ipairs(types) do
         local negated = t:sub(1, 1) == "!"
@@ -358,9 +208,9 @@ local function make_item(m, abs_path, cwd, path_width, rel_path, from_buffer)
         virt_line[#virt_line + 1] = { _BUFFER_INDICATOR, "LocatePickerBufferIndicator" }
     end
     virt_line[#virt_line + 1] = { location, "LocatePickerPath" }
-    local shown_text, shown_subs = trim_for_display(m.text, m.subs)
+    local shown_text, shown_subs = rgutil.trim_for_display(m.text, m.subs)
     return {
-        label_chunks = build_chunks(shown_text, shown_subs),
+        label_chunks = rgutil.build_chunks(shown_text, shown_subs),
         virt_line    = virt_line,
         data         = { filepath = abs_path, lnum = m.lnum, col = m.col, subs = m.subs },
     }
@@ -409,20 +259,6 @@ end
 -- cost one subprocess), and the continuous line counter is mapped back per buffer.
 --------------------------------------------------------------------------------
 
---- Build the rg command for the in-buffer search. Mirrors the disk flags (case,
---- fixed-strings) but adds --line-buffered so matches stream out while
---- later buffers are still being fed, and targets `-` (stdin).
----@param parsed locate.Picker.ParsedPrompt
----@return string[] cmd
-local function build_rg_stdin_cmd(parsed)
-    local args = build_rg_base(parsed)
-    table.insert(args, "--line-buffered")
-    table.insert(args, "--")
-    table.insert(args, parsed.query)
-    table.insert(args, "-")
-    return vim.list_extend({ rg_exe() }, args)
-end
-
 --- Precompute where each buffer begins in the concatenated stdin stream:
 --- `starts[i]` is the 1-based line number of `bufs[i]`'s first line. Buffers are
 --- newline-joined and newline-separated, and Neovim buffer lines never contain a
@@ -453,13 +289,13 @@ local function locate_line(starts, gline)
     return lo, gline - starts[lo] + 1
 end
 
----@param parsed     locate.Picker.ParsedPrompt
----@param grep_opts  locate.livegrep.grep_opts
----@param fetch_opts locate.Picker.FetcherOpts
----@param callback   fun(items:table[]?)
+---@param prompt_details locate.Picker.PromptDetails
+---@param grep_opts      locate.livegrep.grep_opts
+---@param fetch_opts     locate.Picker.FetcherOpts
+---@param callback       fun(items:table[]?)
 ---@return fun()? cancel
-local function async_grep(parsed, grep_opts, fetch_opts, callback)
-    if parsed.query == "" then
+local function async_grep(prompt_details, grep_opts, fetch_opts, callback)
+    if prompt_details.query == "" then
         callback()
         return
     end
@@ -472,9 +308,9 @@ local function async_grep(parsed, grep_opts, fetch_opts, callback)
     -- on-disk matches for those same files so stale disk content never wins.
     local bufs          = collect_open_buffers(
         cwd,
-        parsed.flags["filter"],
-        parsed.flags["type"],
-        tonumber(parsed.flags["max-depth"])
+        prompt_details.flags["filter"],
+        prompt_details.flags["type"],
+        tonumber(prompt_details.flags["max-depth"])
     )
     local open_relpaths = {} ---@type table<string, true>
     for _, b in ipairs(bufs) do
@@ -542,7 +378,7 @@ local function async_grep(parsed, grep_opts, fetch_opts, callback)
         local buf_feed  = strutil.create_line_buffered_feed(function(lines)
             for _, line in ipairs(lines) do
                 if stop_buf then return end
-                local m = parse_match(line)
+                local m = rgutil.parse_match(line)
                 if m and m.lnum then
                     local idx, lnum = locate_line(starts, m.lnum)
                     local b = bufs[idx]
@@ -589,7 +425,7 @@ local function async_grep(parsed, grep_opts, fetch_opts, callback)
         end
 
         buf_handle = spawn(
-            build_rg_stdin_cmd(parsed),
+            rgutil.build_cmd(prompt_details, true),
             {
                 cwd    = cwd,
                 stdin  = true,
@@ -625,7 +461,7 @@ local function async_grep(parsed, grep_opts, fetch_opts, callback)
     local buffered_feed = strutil.create_line_buffered_feed(function(lines)
         for _, line in ipairs(lines) do
             if stop_read then return end
-            local m = parse_match(line)
+            local m = rgutil.parse_match(line)
             if m then
                 local abs_path = vim.fs.joinpath(cwd, m.path)
                 local rel_path = fsutil.get_relative_path(abs_path, cwd)
@@ -649,7 +485,7 @@ local function async_grep(parsed, grep_opts, fetch_opts, callback)
 
     local spawn_err
     dir_handle, spawn_err = spawn(
-        build_rg_dir_cmd(parsed),
+        build_rg_dir_cmd(prompt_details),
         {
             cwd    = cwd,
             stdout = function(data)
@@ -666,7 +502,7 @@ local function async_grep(parsed, grep_opts, fetch_opts, callback)
     -- list rather than showing an empty picker. settle() comes from spawn's
     -- exit callback, which fires even when the process never started.
     if not dir_handle then
-        on_error(string.format("ripgrep (%s): %s", rg_exe(), spawn_err or "failed to start"))
+        on_error(string.format("ripgrep (%s): %s", rgutil.exe(), spawn_err or "failed to start"))
     end
 
     return function()
@@ -688,9 +524,9 @@ function M.spec(opts)
         enable_preview = true,
         previewer      = buffer_preview,
         finder         = function(query, flags, fetch_opts, callback)
-            local parsed     = { query = query, flags = flags }
-            local target_cwd = flags.dir and vim.fn.expand(flags.dir) or vim.fn.getcwd()
-            return async_grep(parsed, {
+            local prompt_details = { query = query, flags = flags }
+            local target_cwd     = flags.dir and vim.fn.expand(flags.dir) or vim.fn.getcwd()
+            return async_grep(prompt_details, {
                 cwd         = target_cwd,
                 max_results = opts.max_results or 10000,
             }, fetch_opts, callback)

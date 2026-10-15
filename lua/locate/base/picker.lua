@@ -83,7 +83,7 @@ local _FLAGS_LABEL = "Flags"
 
 ---Both prompt sections as one value, for a finder that wants the whole reading
 ---rather than the query and the flags it is handed.
----@class locate.Picker.ParsedPrompt
+---@class locate.Picker.PromptDetails
 ---@field query string
 ---@field flags table
 ---@field errors locate.queryflags.Error[]
@@ -92,7 +92,7 @@ local _FLAGS_LABEL = "Flags"
 ---@field line_width number
 ---@field virt_line_width number
 ---@field list_height number
----@field parsed locate.Picker.ParsedPrompt?
+---@field prompt_details locate.Picker.PromptDetails?
 ---@field data table? Setup data supplied by the picker spec.
 
 ---@class locate.Picker.QueryHistoryProvider
@@ -1573,11 +1573,11 @@ function Picker:run_fetch()
 	if #self.opts.flags > 0 then
 		-- An error means the flags have no single reading, so searching them would
 		-- search for something other than what is written: no errors, no fetch.
-		local errors, parsed = self:_flag_errors()
-		flags                = parsed.flags
+		local errors, parsed      = self:_flag_errors()
+		flags                     = parsed.flags
 		-- The two sections read as one thing, for the sources that want both.
-		---@type locate.Picker.ParsedPrompt
-		fetch_opts.parsed    = { query = query_text, flags = flags, errors = errors }
+		---@type locate.Picker.PromptDetails
+		fetch_opts.prompt_details = { query = query_text, flags = flags, errors = errors }
 
 		if #errors > 0 then
 			cancel()

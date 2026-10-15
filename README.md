@@ -12,7 +12,8 @@ diagnostics, quickfix, keymaps, commands and more) behind a single `:Locate`
 command. It can replace `vim.ui.select`, and other plugins can register their
 own sources.
 
-> **Requires Neovim >= 0.11.** No plugin dependencies. `live_grep` requires
+> **Requires Neovim >= 0.11.** No plugin dependencies. `live_grep` and
+> `buffer_lines` require
 > [ripgrep](https://github.com/BurntSushi/ripgrep) on `$PATH`; every other
 > source, `files` included, is pure Lua.
 
@@ -49,8 +50,22 @@ vim.pack.add({ "https://github.com/mbfoss/locate.nvim" })
 **lazy.nvim**
 
 ```lua
-{ "mbfoss/locate.nvim", lazy = false }
+{
+  "mbfoss/locate.nvim",
+  -- `plugin/` registers `:Locate` and the highlight groups without requiring
+  -- any Lua, so the stub works from a fresh start and loads the picker on
+  -- first use.
+  cmd = "Locate",
+  -- setup() is optional, and only needed to change a default:
+  -- opts = { ... }, -- see Configuring the picker
+}
 ```
+
+Use `lazy = false` instead when your config reaches into the plugin before
+that: assigning `vim.ui.select = require("locate.select")` at startup, or
+registering a `:Pick` alias with `create_cmd_alias`. A plugin that has not
+loaded yet is not on the runtimepath, so those `require` calls would have
+nothing to find.
 
 ## Configuring the picker <!-- tag: configuration -->
 
@@ -131,7 +146,7 @@ vim.ui.select = require("locate.select")
 | `config_files` | Files under `stdpath("config")` |
 | `recent_files` | The oldfiles list |
 | `live_grep` | search the content of files including any modified unsaved files |
-| `buffer_lines` | Non-blank lines of the current buffer |
+| `buffer_lines` | Lines of the current buffer, searched with ripgrep |
 | `buffers` | Loaded buffers |
 | `windows` | Open windows |
 | `quickfix` / `loclist` | The quickfix or location list |
@@ -164,6 +179,9 @@ Notes:
   portability and features over raw speed, though still fast enough on a typical project tree.
 - `live_grep` searches the in-memory text of open buffers, so unsaved
   modifications are included; files with no open buffer are searched on disk.
+- `buffer_lines` searches the buffer with ripgrep, so its query and its flags
+  (`regex`, `case`, `word`, `line`, `invert`) read as they do in `live_grep`; an
+  empty query lists the buffer's non-blank lines.
 - `lsp_definitions`, `lsp_declarations`, `lsp_implementations` and
   `lsp_type_definitions` jump straight to their target on a single result.
 - `lsp_workspace_symbols` asks the server once with an empty query and filters

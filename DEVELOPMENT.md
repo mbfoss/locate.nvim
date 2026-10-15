@@ -7,8 +7,8 @@ Technical notes for working on locate.nvim.
 - Neovim ≥ 0.11 (enforced at load time in [`plugin/locate.lua`](plugin/locate.lua))
 - [busted](https://lunarmodules.github.io/busted/) for the test suite,
   installed for Lua 5.1 (see below)
-- [ripgrep](https://github.com/BurntSushi/ripgrep) for the `files` and
-  `live_grep` sources at runtime
+- [ripgrep](https://github.com/BurntSushi/ripgrep) for the `live_grep` and
+  `buffer_lines` sources at runtime
 
 ## Testing
 
@@ -61,6 +61,20 @@ fetch loop. Everything user-visible happens here.
   when that buffer is loaded and falls back to the file on disk;
 - `make_history_provider`, persisting per-source query history under
   `stdpath("state")/locate/pickhist.<name>.json`.
+
+**`rgutil.lua`**: the ripgrep interface the sources that search with it share:
+the resolved executable, `--json` record parsing, match chunks, `--type-list`
+completion, and the argument list the flags build.
+
+- The flag vocabulary is split by what it says. `rgutil.MATCH_FLAGS` is *what*
+  to match (`regex`, `case`, `nocase`, `word`, `line`, `invert`), shared by
+  every search; `live_grep` composes its own schema around it for *where*
+  (`dir`, `filter`, `type`) and *how to walk it* (`follow`, `hidden`,
+  `no-ignore`, `max-depth`), which a single buffer has no use for.
+- `build_cmd` holds what any search shares (the JSON output contract, how the
+  query is read); its `stdin` flag adds the `-` target, for both the in-buffer
+  half of `live_grep` and `buffer_lines`, which searches the buffer by writing
+  its lines to rg.
 
 **`queryflags.lua`**: reads a flags line (`switch`, `key=value`,
 `key=one,two`) and drives flag completion.
@@ -139,12 +153,14 @@ Two properties make this work without per-source configuration:
   case, so the engine sorts an index array and breaks ties on position;
   otherwise equal-scoring rows reshuffle on every keystroke.
 
-A source leaving `score` unset is never reordered. Three do so deliberately,
+A source leaving `score` unset is never reordered. Four do so deliberately,
 each with the reason in the code:
 
 - `spell_suggest`: `spellsuggest()` already ranks by likelihood;
 - `quickfix` / `loclist`: the list's order belongs to whatever built it;
-- `jumplist`: recency is the reason you opened it.
+- `jumplist`: recency is the reason you opened it;
+- `buffer_lines`: rg reports in document order and the list is read the same
+  way, so the line numbers stay monotonic.
 
 Other source behaviours:
 

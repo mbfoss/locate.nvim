@@ -246,27 +246,6 @@ describe("initial cursor, per source", function()
     end)
 end)
 
-describe("buffer_lines", function()
-    it("lists the non-blank lines of the current buffer, numbered", function()
-        local bufnr = vim.api.nvim_create_buf(false, true)
-        vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "alpha", "", "   ", "beta" })
-        vim.api.nvim_win_set_buf(0, bufnr)
-
-        local spec = require("locate.pickers.lines").spec({ bufnr = bufnr })
-        local items
-        spec.finder("", {}, FETCH_OPTS, function(new_items) items = new_items end)
-
-        assert.equals(2, #items)
-        assert.equals(1, items[1].data.lnum)
-        assert.equals(4, items[2].data.lnum)
-        assert.equals(bufnr, items[1].data.bufnr)
-
-        spec.finder("beta", {}, FETCH_OPTS, function(new_items) items = new_items end)
-        assert.equals(1, #items)
-        assert.equals(4, items[1].data.lnum)
-    end)
-end)
-
 describe("registers", function()
     it("skips empty registers unless empty is set", function()
         vim.fn.setreg("q", "")
