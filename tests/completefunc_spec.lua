@@ -132,7 +132,7 @@ describe("picker prompt sections", function()
         -- Insert mode is where this is typed, and there the cursor may sit one
         -- past the last character; without `onemore` normal mode clamps it back
         -- onto the text and every error looks like one being typed.
-        vim.wo[pwin].virtualedit = "onemore"
+        vim.wo[pwin][0].virtualedit = "onemore"
 
         local function write(text, col)
             vim.api.nvim_buf_set_lines(pbuf, 0, -1, false, { text })
@@ -177,7 +177,7 @@ describe("picker prompt sections", function()
         -- Any float but the prompt's: the counter is the list window's winbar,
         -- and the list is the only other one this picker opens.
         for _, w in ipairs(vim.api.nvim_list_wins()) do
-            if w ~= pwin and vim.wo[w].winbar:find("%d+/%d+") then counted = true end
+            if w ~= pwin and vim.wo[w][0].winbar:find("%d+/%d+") then counted = true end
         end
 
         return seen_query, seen_flags, err, marked, counted

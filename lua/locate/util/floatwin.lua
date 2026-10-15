@@ -62,9 +62,10 @@ function M.open(text, opts)
         callback = close,
     })
 
-    vim.wo[win].wrap = false
-    vim.wo[win].winfixbuf = true
-    vim.wo[win].winhighlight = "NormalFloat:NormalFloat,FloatBorder:FloatBorder,FloatTitle:FloatTitle"
+    local lwo = vim.wo[win][0]
+    lwo.wrap = false
+    lwo.winfixbuf = true
+    lwo.winhighlight = "NormalFloat:NormalFloat,FloatBorder:FloatBorder,FloatTitle:FloatTitle"
 
     if opts.is_markdown then
         vim.bo[buf].filetype = "markdown"
@@ -72,8 +73,8 @@ function M.open(text, opts)
         if not ok then
             vim.bo[buf].syntax = "on"
         end
-        vim.wo[win].conceallevel = 3
-        vim.wo[win].concealcursor = "nv"
+        lwo.conceallevel = 3
+        lwo.concealcursor = "nv"
     end
 
     local key_opts = { buffer = buf, silent = true }
