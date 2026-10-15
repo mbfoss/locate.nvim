@@ -11,9 +11,9 @@ local health = vim.health
 ---`plugin/locate.lua`). Silent on a supported version: a health check is for
 ---what is wrong, not for what is unremarkable.
 local function _check_requirements()
-    if vim.fn.has("nvim-0.11") ~= 1 then
+    if vim.fn.has("nvim-0.10") ~= 1 then
         health.start("locate: requirements")
-        health.error("locate.nvim requires Neovim >= 0.11")
+        health.error("locate.nvim requires Neovim >= 0.10")
     end
 end
 

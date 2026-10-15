@@ -1,5 +1,5 @@
-if vim.fn.has("nvim-0.11") ~= 1 then
-    error("locate.nvim requires Neovim >= 0.11")
+if vim.fn.has("nvim-0.10") ~= 1 then
+    error("locate.nvim requires Neovim >= 0.10")
 end
 
 if vim.g.loaded_locate then return end

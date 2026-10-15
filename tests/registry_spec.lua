@@ -225,6 +225,9 @@ describe("initial cursor, per source", function()
         local spec = require("locate.pickers.lines").spec({ bufnr = bufnr })
         local items
         spec.finder("", {}, FETCH_OPTS, function(new_items) items = new_items end)
+        -- The buffer is read a chunk at a time before any row is built, so the
+        -- rows arrive off the finder's own callback.
+        assert(vim.wait(5000, function() return items ~= nil end, 10), "no rows were built")
 
         assert.equals(3, items[spec.initial_cursor(items)].data.lnum)
     end)

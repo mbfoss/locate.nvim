@@ -1,10 +1,15 @@
 local M           = {}
 
+local bufloader   = require("locate.util.bufloader")
 local pickertools = require("locate.base.pickertools")
 local rgutil      = require("locate.base.rgutil")
 local spawn       = require("locate.util.spawn")
 local strutil     = require("locate.util.strutil")
 local ui          = require("locate.util.ui")
+
+---The most rows the picker builds, the cap `files` and `live_grep` put on their
+---own walks. A list past this is no better to read, and every row is memory.
+local DEFAULT_MAX_RESULTS = 10000
 
 ---One matchable line of the buffer: its 1-based number and its text with the
 ---surrounding whitespace removed, so the query never has to account for indent.
@@ -12,22 +17,20 @@ local ui          = require("locate.util.ui")
 ---@field lnum integer
 ---@field text string
 
----@param bufnr integer
----@return locate.lines.Entry[]
-local function collect_lines(bufnr)
-    local entries = {}
-    for lnum, text in ipairs(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)) do
-        -- Blank lines carry nothing to match on and would only pad the list
-        -- shown for an empty query.
-        if text:match("%S") then
-            entries[#entries + 1] = { lnum = lnum, text = vim.trim(text) }
-        end
-    end
-    return entries
-end
+---What every row of the picker says about the buffer it came from, as against
+---the line it names. The lines themselves are filled in by `load_entries`, so a
+---picker built over a huge buffer opens after a chunked read rather than a
+---freeze.
+---@class locate.lines.Ctx
+---@field bufnr      integer
+---@field filepath   string?  the buffer's file, nil for a scratch buffer
+---@field entries    locate.lines.Entry[]?  the loaded lines, nil until loaded
+---@field lnum_width integer?  width of the widest line number, so rows line up
+---@field start_lnum integer?  the line the picker opens on
 
 ---The entry the cursor sits on, or the first one below it when the cursor is on
----a blank line, so the picker opens where the user already is.
+---a blank line, so the picker opens where the user already is. When the list was
+---cut short before reaching the cursor, it is the last line that was listed.
 ---@param entries locate.lines.Entry[]
 ---@param cursor_lnum integer?
 ---@return integer? lnum
@@ -40,13 +43,6 @@ local function initial_lnum(entries, cursor_lnum)
     end
     return best
 end
-
----What every row of the picker says about the buffer it came from, as against
----the line it names.
----@class locate.lines.Ctx
----@field bufnr      integer
----@field filepath   string?  the buffer's file, nil for a scratch buffer
----@field lnum_width integer  width of the widest line number, so rows line up
 
 ---The prefix every row starts with: the line number, padded to the width of the
 ---widest one, so the text of every row begins at the same column.
@@ -88,21 +84,80 @@ local function browse_items(ctx, entries)
     return items
 end
 
+---Read the buffer into `ctx` a chunk of lines per turn of the main loop, so a
+---very large buffer costs the UI a run of short turns rather than one freeze.
+---A buffer that changes under the read reports that instead of leaving line
+---numbers behind that have moved.
+---@param ctx         locate.lines.Ctx
+---@param cursor_lnum integer?  where the cursor was, to open on
+---@param max_results integer     the most entries to collect
+---@param callback    fun(err:string?)  called with `nil` once `ctx` is loaded
+---@return fun() cancel
+local function load_entries(ctx, cursor_lnum, max_results, callback)
+    local entries = {} ---@type locate.lines.Entry[]
+    local read    ---@type locate.util.bufloader.Read
+
+    local function finish()
+        if #entries == 0 then
+            return callback("Buffer has no non-blank lines")
+        end
+        ctx.entries    = entries
+        -- The widest line number is the last one listed, since the entries are
+        -- in document order.
+        ctx.lnum_width = #tostring(entries[#entries].lnum)
+        ctx.start_lnum = initial_lnum(entries, cursor_lnum)
+        callback(nil)
+    end
+
+    read = bufloader.load(ctx.bufnr, {}, {
+        on_chunk = function(lines, first_lnum)
+            for i, text in ipairs(lines) do
+                -- Blank lines carry nothing to match on and would only pad the
+                -- list shown for an empty query.
+                if text:match("%S") then
+                    entries[#entries + 1] = { lnum = first_lnum + i - 1, text = vim.trim(text) }
+                    -- The list is full, so the rest of the buffer holds nothing
+                    -- it would show: stop reading and answer with what there is.
+                    if #entries >= max_results then
+                        read.cancel()
+                        return finish()
+                    end
+                end
+            end
+        end,
+        on_done  = finish,
+        on_error = function(err) callback(err) end,
+    })
+
+    return read.cancel
+end
+
 ---Search the buffer with ripgrep, the buffer's lines written to its stdin: what
 ---is searched is the text as it stands, unsaved edits included, and the line
 ---numbers that come back are the buffer's own, the stream being the lines joined
----back with nothing else added.
+---back with nothing else added. The lines are read and written a chunk at a
+---time, so a very large buffer never holds the UI.
 ---@param prompt_details locate.Picker.PromptDetails
 ---@param ctx            locate.lines.Ctx
+---@param max_results    integer  the most rows to build
 ---@param callback       fun(items:locate.Picker.Item[]?)
 ---@return fun()? cancel
-local function search(prompt_details, ctx, callback)
-    local lines = vim.api.nvim_buf_get_lines(ctx.bufnr, 0, -1, false)
-    local text  = table.concat(lines, "\n") .. "\n"
-
+local function search(prompt_details, ctx, max_results, callback)
     local items     = {}
     local stderr    = {} ---@type string[]
     local cancelled = false
+    local stopped   = false  -- enough rows: rg was ended on purpose
+    local read_err  ---@type string?  set when the read failed partway through
+    local handle    ---@type locate.util.SpawnHandle?
+    local loader    ---@type locate.util.bufloader.Read?
+
+    -- Whatever is in flight is of no more use: the buffer stops being streamed
+    -- and rg is asked to end, its exit being what settles the picker.
+    local function stop()
+        stopped = true
+        if loader then loader.cancel() end
+        if handle then handle.kill() end
+    end
 
     -- rg's output arrives in libuv's read callbacks, which is no place to
     -- measure anything: the rows are built from bytes alone here, and the picker
@@ -120,6 +175,12 @@ local function search(prompt_details, ctx, callback)
                 -- line numbers stay monotonic.
                 items[#items + 1] =
                     make_item(ctx, m.lnum, col, rgutil.build_chunks(shown, subs))
+                -- Past this the list is one nobody reads, so the search ends
+                -- here rather than building every match of a huge buffer.
+                if #items >= max_results then
+                    stop()
+                    return
+                end
             end
         end
     end)
@@ -142,9 +203,12 @@ local function search(prompt_details, ctx, callback)
         callback(merged)
     end
 
-    local handle, spawn_err = spawn(rgutil.build_cmd(prompt_details, true), {
+    local spawn_err
+    handle, spawn_err = spawn(rgutil.build_cmd(prompt_details, true), {
         stdin  = true,
-        stdout = function(data) if not cancelled then feed(data) end end,
+        stdout = function(data)
+            if not cancelled and not stopped and not read_err then feed(data) end
+        end,
         stderr = function(data) stderr[#stderr + 1] = data end,
     }, finish)
 
@@ -155,32 +219,47 @@ local function search(prompt_details, ctx, callback)
         return function() cancelled = true end
     end
 
-    handle.write(text)
-    handle.write(nil)
+    -- The buffer is pumped into rg's stdin a chunk at a time, on the main loop
+    -- and with a turn given back to it between chunks.
+    loader = bufloader.load(ctx.bufnr, {}, {
+        on_chunk = function(lines)
+            handle.write(table.concat(lines, "\n") .. "\n")
+        end,
+        on_done  = function() handle.write(nil) end,
+        on_error = function(err)
+            -- Half a buffer is not the text that was asked to be searched, so
+            -- what rg has reported is dropped (`feed` shares `items`) and the
+            -- reason is left to `finish`; EOF lets rg end on its own.
+            read_err            = err
+            items               = {}
+            stderr[#stderr + 1] = err
+            handle.write(nil)
+        end,
+    })
 
     return function()
         cancelled = true
-        handle.kill()
+        stop()
     end
 end
 
 ---@class locate.lines.opts
----@field bufnr integer?
+---@field bufnr       integer?
+---@field max_results integer?  the most rows to build (default 10000)
 
 ---@param opts locate.lines.opts?
 ---@return locate.PickerSpec?
 function M.spec(opts)
     opts              = opts or {}
+    local max_results = opts.max_results or DEFAULT_MAX_RESULTS
 
+    -- Resolve 0 the way the rest of the API does: the buffer it names is the
+    -- current one, and comparing it against that number is how the cursor line
+    -- below is found.
     local bufnr       = opts.bufnr or vim.api.nvim_get_current_buf()
+    if bufnr == 0 then bufnr = vim.api.nvim_get_current_buf() end
     if not vim.api.nvim_buf_is_loaded(bufnr) then
         vim.notify("Buffer is not loaded", vim.log.levels.WARN)
-        return nil
-    end
-
-    local entries     = collect_lines(bufnr)
-    if #entries == 0 then
-        vim.notify("Buffer has no non-blank lines", vim.log.levels.WARN)
         return nil
     end
 
@@ -188,14 +267,30 @@ function M.spec(opts)
     local cursor_lnum = bufnr == vim.api.nvim_get_current_buf()
         and vim.api.nvim_win_get_cursor(0)[1]
         or nil
-    local start_lnum  = initial_lnum(entries, cursor_lnum)
 
     ---@type locate.lines.Ctx
     local ctx         = {
-        bufnr      = bufnr,
-        filepath   = name ~= "" and name or nil,
-        lnum_width = #tostring(entries[#entries].lnum),
+        bufnr    = bufnr,
+        filepath = name ~= "" and name or nil,
     }
+
+    ---Answer a query from the lines already loaded in `ctx`.
+    ---@param query      string
+    ---@param flags      table
+    ---@param fetch_opts locate.Picker.FetcherOpts
+    ---@param callback   fun(items:locate.Picker.Item[]?)
+    ---@return fun()? cancel
+    local function answer(query, flags, fetch_opts, callback)
+        if query == "" then
+            callback(browse_items(ctx, ctx.entries))
+            return
+        end
+        -- `prompt_details` is what the prompt was read as; without it (a caller
+        -- driving the finder directly) the arguments are all there is.
+        local prompt_details = fetch_opts.prompt_details
+            or { query = query, flags = flags, errors = {} }
+        return search(prompt_details, ctx, max_results, callback)
+    end
 
     return {
         prompt         = "Buffer Lines",
@@ -204,23 +299,38 @@ function M.spec(opts)
         flags          = rgutil.MATCH_FLAGS,
         enable_preview = true,
         previewer      = pickertools.buffer_preview,
+        -- The buffer is read before the picker opens, a chunk per turn of the
+        -- main loop, so opening on a huge file is a wait rather than a freeze.
+        setup          = function(callback)
+            load_entries(ctx, cursor_lnum, max_results, function(err)
+                if err then
+                    vim.notify(err, vim.log.levels.WARN)
+                    return callback(nil)
+                end
+                callback(ctx)
+            end)
+        end,
         -- Open on the line the cursor is sitting on, so the picker starts where
-        -- the reader already is.
+        -- the reader already is. `setup` has loaded the buffer, and so the line
+        -- number, by the time the first results are in.
         initial_cursor = function(items)
             for row, item in ipairs(items) do
-                if item.data.lnum == start_lnum then return row end
+                if item.data.lnum == ctx.start_lnum then return row end
             end
         end,
         finder         = function(query, flags, fetch_opts, callback)
-            if query == "" then
-                callback(browse_items(ctx, entries))
-                return
+            -- A caller driving the finder directly skipped `setup`, which is the
+            -- only thing that reads the buffer, so it is read here instead.
+            if not ctx.entries then
+                return load_entries(ctx, cursor_lnum, max_results, function(err)
+                    if err then
+                        vim.notify(err, vim.log.levels.WARN)
+                        return callback()
+                    end
+                    answer(query, flags, fetch_opts, callback)
+                end)
             end
-            -- `prompt_details` is what the prompt was read as; without it (a
-            -- caller driving the finder directly) the arguments are all there is.
-            local prompt_details = fetch_opts.prompt_details
-                or { query = query, flags = flags, errors = {} }
-            return search(prompt_details, ctx, callback)
+            return answer(query, flags, fetch_opts, callback)
         end,
         on_confirm     = function(data)
             if data then ui.smart_open_buffer(data.bufnr, data.lnum, data.col) end

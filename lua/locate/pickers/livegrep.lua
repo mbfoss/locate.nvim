@@ -3,6 +3,7 @@ local M                = {}
 local ui               = require("locate.util.ui")
 local strutil          = require("locate.util.strutil")
 local fsutil           = require("locate.util.fsutil")
+local bufloader        = require("locate.util.bufloader")
 local spawn            = require("locate.util.spawn")
 local pickertools      = require("locate.base.pickertools")
 local rgutil           = require("locate.base.rgutil")
@@ -260,20 +261,25 @@ end
 --------------------------------------------------------------------------------
 
 --- Precompute where each buffer begins in the concatenated stdin stream:
---- `starts[i]` is the 1-based line number of `bufs[i]`'s first line. Buffers are
---- newline-joined and newline-separated, and Neovim buffer lines never contain a
---- newline, so the stream's line counter is exact and matches never straddle a
---- buffer boundary (the search is line-oriented).
+--- `starts[i]` is the 1-based line number of `bufs[i]`'s first line, `ticks[i]`
+--- the buffer revision it was measured from. Buffers are newline-joined and
+--- newline-separated, and Neovim buffer lines never contain a newline, so the
+--- stream's line counter is exact and matches never straddle a buffer boundary
+--- (the search is line-oriented).
 ---@param bufs locate.livegrep.OpenBuf[]
----@return integer[] starts
+---@return integer[] starts, integer[] ticks
 local function buffer_line_offsets(bufs)
     local starts    = {}
+    local ticks     = {}
     local next_line = 1
     for i, b in ipairs(bufs) do
         starts[i] = next_line
+        -- The offsets describe the text as it is right now, so each read is
+        -- pinned to the revision they were measured from.
+        ticks[i]  = vim.api.nvim_buf_get_changedtick(b.bufnr)
         next_line = next_line + vim.api.nvim_buf_line_count(b.bufnr)
     end
-    return starts
+    return starts, ticks
 end
 
 --- Map a 1-based stream line back to its buffer: the largest `starts[i] <= gline`.
@@ -323,6 +329,7 @@ local function async_grep(prompt_details, grep_opts, fetch_opts, callback)
     local errors    = {} ---@type string[]
     local buf_handle ---@type locate.util.SpawnHandle?
     local dir_handle ---@type locate.util.SpawnHandle?
+    local buf_loader ---@type locate.util.bufloader.Read?  the buffer being streamed to stdin
 
     -- Both searches run as async rg jobs; finish() fires once both have settled,
     -- with buffer matches leading the merged list.
@@ -364,18 +371,19 @@ local function async_grep(prompt_details, grep_opts, fetch_opts, callback)
 
     ----------------------------------------------------------------------------
     -- In-buffer search: one rg reading every open buffer's in-memory text from stdin.
-    -- Buffers are pumped one at a time with backpressure (peak extra memory ~one buffer),
-    -- and each match's stream line is mapped back to its owning buffer.
+    -- Buffers are pumped one at a time, a chunk of lines at a time and with backpressure
+    -- (peak extra memory ~one chunk), and each match's stream line is mapped back to the
+    -- buffer it came from.
     ----------------------------------------------------------------------------
     if #bufs == 0 then
         settle()
     else
-        local starts    = buffer_line_offsets(bufs)
-        local stop_buf  = false
-        local buf_done  = false
-        local buf_count = 0
+        local starts, ticks = buffer_line_offsets(bufs)
+        local stop_buf      = false
+        local buf_done      = false
+        local buf_count     = 0
 
-        local buf_feed  = strutil.create_line_buffered_feed(function(lines)
+        local buf_feed      = strutil.create_line_buffered_feed(function(lines)
             for _, line in ipairs(lines) do
                 if stop_buf then return end
                 local m = rgutil.parse_match(line)
@@ -394,6 +402,7 @@ local function async_grep(prompt_details, grep_opts, fetch_opts, callback)
                         buf_count = buf_count + 1
                         if buf_count >= max_results then
                             stop_buf = true
+                            if buf_loader then buf_loader.cancel() end
                             if buf_handle then buf_handle.kill() end
                             return
                         end
@@ -402,9 +411,10 @@ local function async_grep(prompt_details, grep_opts, fetch_opts, callback)
             end
         end)
 
-        -- Pump one buffer per stdin write, resuming the next on the main loop (buffer
-        -- reads are banned in libuv's fast callbacks). Writes fire ahead without blocking,
-        -- but once rg's stdin backs up past the high-water mark we drain before feeding more.
+        -- Hand one buffer to rg's stdin a chunk at a time. The lines are read on
+        -- the main loop and the read gives the loop a turn between chunks, so no
+        -- single buffer holds the UI; once rg's stdin backs up past the high-water
+        -- mark the read parks until that write drains.
         local function pump(i)
             if cancelled or stop_buf or buf_done then return end
             if i > #bufs then
@@ -412,16 +422,37 @@ local function async_grep(prompt_details, grep_opts, fetch_opts, callback)
                 return
             end
             if not buf_handle then return end
-            local lines = vim.api.nvim_buf_get_lines(bufs[i].bufnr, 0, -1, false)
-            local chunk = table.concat(lines, "\n") .. "\n"
-            if buf_handle.get_write_queue_size() >= _MAX_WRITE_QUEUE then
-                buf_handle.write(chunk, function()
-                    vim.schedule(function() pump(i + 1) end)
-                end)
-            else
-                buf_handle.write(chunk)
-                vim.schedule(function() pump(i + 1) end)
-            end
+
+            -- `read` is declared before the call so `on_chunk` can resume the
+            -- read it belongs to; `buf_loader` is how a cancel reaches it.
+            local read ---@type locate.util.bufloader.Read
+            read       = bufloader.load(bufs[i].bufnr, { tick = ticks[i] }, {
+                on_chunk = function(lines)
+                    if cancelled or stop_buf then return false end
+                    local chunk = table.concat(lines, "\n") .. "\n"
+                    if buf_handle.get_write_queue_size() >= _MAX_WRITE_QUEUE then
+                        -- Park rather than queue a whole buffer ahead of rg; the
+                        -- write callback resumes on the main loop.
+                        buf_handle.write(chunk, function()
+                            read.resume()
+                        end)
+                        return false
+                    end
+                    buf_handle.write(chunk)
+                end,
+                on_done  = function()
+                    if not (cancelled or stop_buf or buf_done) then pump(i + 1) end
+                end,
+                on_error = function(err)
+                    -- The rest of the stream would be built from lines that have
+                    -- moved under the read: the in-buffer half stops here and
+                    -- says why, and whatever rg has already matched stands.
+                    errors[#errors + 1] = ("%s: %s"):format(bufs[i].relpath, err)
+                    stop_buf            = true
+                    if buf_handle then buf_handle.kill() end
+                end,
+            })
+            buf_loader = read
         end
 
         buf_handle = spawn(
@@ -507,6 +538,7 @@ local function async_grep(prompt_details, grep_opts, fetch_opts, callback)
 
     return function()
         cancelled = true
+        if buf_loader then buf_loader.cancel() end
         if buf_handle then buf_handle.kill() end
         if dir_handle then dir_handle.kill() end
     end

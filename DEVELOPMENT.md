@@ -4,7 +4,7 @@ Technical notes for working on locate.nvim.
 
 ## Requirements
 
-- Neovim ≥ 0.11 (enforced at load time in [`plugin/locate.lua`](plugin/locate.lua))
+- Neovim ≥ 0.10 (enforced at load time in [`plugin/locate.lua`](plugin/locate.lua))
 - [busted](https://lunarmodules.github.io/busted/) for the test suite,
   installed for Lua 5.1 (see below)
 - [ripgrep](https://github.com/BurntSushi/ripgrep) for the `live_grep` and
@@ -171,14 +171,26 @@ Other source behaviours:
 - `on_confirm` is called on *every* close, with `nil` when the picker was
   dismissed. That is where a source undoes anything it did while previewing,
   as `colorschemes` does when it restores the original scheme.
+- `buffer_lines` and the in-buffer half of `live_grep` search a buffer's
+  in-memory text by streaming it to ripgrep's stdin, both through `bufloader`:
+  the buffer is read a chunk at a time, so a very large one never holds the UI.
+  The read is pinned to the buffer's revision, so a buffer edited or reloaded
+  mid-read ends the read (`buffer_lines` declines to open, `live_grep` reports
+  it in the list) instead of showing line numbers from text that has moved.
 
 ### Shared toolkit (`util`)
 
 [`lua/locate/util/`](lua/locate/util/) holds the low-level primitives the
-picker builds on: `Spinner`, `floatwin`, `fsutil`, `spawn`, `strutil`, `timer`
-and `ui`. These are plugin-agnostic on purpose, knowing nothing about pickers,
-so prefer extending `util` over duplicating window, filesystem or process
-plumbing inside a source.
+picker builds on: `Spinner`, `bufloader`, `floatwin`, `fsutil`, `spawn`,
+`strutil`, `timer` and `ui`. These are plugin-agnostic on purpose, knowing
+nothing about pickers, so prefer extending `util` over duplicating window,
+filesystem or process plumbing inside a source.
+
+`bufloader` reads a buffer a chunk of lines at a time, parking on a timer
+between chunks so the main loop gets a turn, the way `fsutil.async_walk_dir`
+slices a directory walk. It is pinned to the buffer's `changedtick`, so a
+buffer edited partway through reports that rather than handing back line
+numbers from text that has moved.
 
 ### Icons
 

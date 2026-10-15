@@ -32,7 +32,7 @@ PANVIMDOC_URL=https://github.com/kdheepak/panvimdoc.git
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 project=locate
 description="A dependency-free fuzzy picker for Neovim"
-vimversion="Neovim >= 0.11"
+vimversion="Neovim >= 0.10"
 
 out="$root/doc/$project.txt"
 work="${TMPDIR:-/tmp}/$project-doc.$$"

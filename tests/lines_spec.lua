@@ -135,4 +135,54 @@ describe("buffer_lines", function()
         assert.is_function(cancel)
         cancel()
     end)
+
+    it("reads the buffer before opening, on the line the cursor is on", function()
+        buffer({ "alpha", "", "beta" })
+        vim.api.nvim_win_set_cursor(0, { 3, 0 })
+
+        local spec = lines.spec({ bufnr = bufnr })
+        local data, ready
+        spec.setup(function(ctx)
+            data, ready = ctx, true
+        end)
+        assert(vim.wait(5000, function() return ready end, 10), "the buffer was never read")
+
+        assert.is_table(data)
+        local items = fetch(spec, "")
+        assert.same({ "1 alpha", "3 beta" }, vim.tbl_map(row, items))
+        assert.equals(2, spec.initial_cursor(items))
+    end)
+
+    it("stops at max_results, leaving the rest of the buffer unread", function()
+        buffer({ "alpha one", "alpha two", "alpha three", "alpha four" })
+
+        local spec = lines.spec({ bufnr = bufnr, max_results = 2 })
+        local data, ready
+        spec.setup(function(ctx)
+            data, ready = ctx, true
+        end)
+        assert(vim.wait(5000, function() return ready end, 10), "the read never settled")
+
+        -- The browse list is full after two lines, so the other two are never
+        -- read: the picker answers with what it has.
+        assert.equals(2, #data.entries)
+        assert.same({ "1 alpha one", "2 alpha two" }, vim.tbl_map(row, fetch(spec, "")))
+
+        -- A query searches the whole buffer, and stops the stream at the same
+        -- number of rows rather than building the rest.
+        assert.same({ "1 alpha one", "2 alpha two" }, vim.tbl_map(row, fetch(spec, "alpha")))
+    end)
+
+    it("declines to open a buffer with nothing to match on", function()
+        buffer({ "", "   " })
+
+        local spec = lines.spec({ bufnr = bufnr })
+        local data, ready
+        spec.setup(function(ctx)
+            data, ready = ctx, true
+        end)
+        assert(vim.wait(5000, function() return ready end, 10), "the read never settled")
+
+        assert.is_nil(data)
+    end)
 end)

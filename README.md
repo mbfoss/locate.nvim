@@ -12,7 +12,12 @@ diagnostics, quickfix, keymaps, commands and more) behind a single `:Locate`
 command. It can replace `vim.ui.select`, and other plugins can register their
 own sources.
 
-> **Requires Neovim >= 0.11.** No plugin dependencies. `live_grep` and
+Features not found in other pickers
+
+* Live search flags/options modification without the need to reopen the picket
+* Grep search inludes unsaved changes in a buffer instead of always using the on-disk version, 
+
+> **Requires Neovim >= 0.10.** No plugin dependencies. `live_grep` and
 > `buffer_lines` require
 > [ripgrep](https://github.com/BurntSushi/ripgrep) on `$PATH`; every other
 > source, `files` included, is pure Lua.
@@ -45,7 +50,7 @@ vim.pack.add({ "https://github.com/mbfoss/locate.nvim" })
 ```
 
 - `vim.pack.update()` updates it, `vim.pack.del({ "locate.nvim" })` removes it.
-- On Neovim 0.11, use a plugin manager.
+- On Neovim 0.10, use a plugin manager.
 
 **lazy.nvim**
 
