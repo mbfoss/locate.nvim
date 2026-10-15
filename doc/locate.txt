@@ -24,6 +24,11 @@ diagnostics, quickfix, keymaps, commands and more) behind a single `:Locate`
 command. It can replace `vim.ui.select`, and other plugins can register their
 own sources.
 
+Features not found in other pickers
+
+- Live search flags/options modification without the need to reopen the picket
+- Grep search inludes unsaved changes in a buffer instead of always using the on-disk version,
+
 
   **Requires Neovim >= 0.10.** No plugin dependencies. `live_grep` and
   `buffer_lines` require ripgrep <https://github.com/BurntSushi/ripgrep> on
@@ -214,6 +219,8 @@ Notes:
     portability and features over raw speed, though still fast enough on a typical project tree.
 - `live_grep` searches the in-memory text of open buffers, so unsaved
     modifications are included; files with no open buffer are searched on disk.
+    `buffers` searches the open buffers alone, skipping the directory walk, so
+    there is nothing for `follow`, `hidden` and `no-ignore` to act on.
 - `buffer_lines` searches the buffer with ripgrep, so its query and its flags
     (`regex`, `case`, `word`, `line`, `invert`) read as they do in `live_grep`; an
     empty query lists the buffer’s non-blank lines.

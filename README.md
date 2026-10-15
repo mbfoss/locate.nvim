@@ -174,6 +174,8 @@ Notes:
   portability and features over raw speed, though still fast enough on a typical project tree.
 - `live_grep` searches the in-memory text of open buffers, so unsaved
   modifications are included; files with no open buffer are searched on disk.
+  `buffers` searches the open buffers alone, skipping the directory walk, so
+  there is nothing for `follow`, `hidden` and `no-ignore` to act on.
 - `buffer_lines` searches the buffer with ripgrep, so its query and its flags
   (`regex`, `case`, `word`, `line`, `invert`) read as they do in `live_grep`; an
   empty query lists the buffer's non-blank lines.

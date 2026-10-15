@@ -25,6 +25,7 @@ local _MAX_WRITE_QUEUE = 1024 * 1024
 ---rgutil's, so a search with no tree to walk takes those alone.
 ---@type locate.queryflags.FlagDef[]
 local TARGET_FLAGS = {
+    { name = "buffers",   type = "boolean", desc = "search only the loaded buffers" },
     { name = "dir",       type = "value",   complete = "dir", slot = "path", desc = "search root directory" },
     { name = "filter",    type = "value",   multi = true,     slot = "glob", desc = "glob filter: *.txt, !*.lua, **/dir/**" },
     { name = "type",      type = "value",   multi = true,     slot = "name", complete = rgutil.complete_type, desc = "rg file type: lua, rust, !md (see rg --type-list)" },
@@ -309,6 +310,9 @@ local function async_grep(prompt_details, grep_opts, fetch_opts, callback)
     local max_results   = grep_opts.max_results or 10000
     local cwd           = grep_opts.cwd
     local path_width    = fetch_opts.virt_line_width
+    -- `buffers` leaves the directory half unrun: what is open is the whole
+    -- search, and the flags that narrow the open buffers still apply to it.
+    local only_buffers  = prompt_details.flags["buffers"] == true
 
     -- Open buffers take priority: search their in-memory text, then drop the
     -- on-disk matches for those same files so stale disk content never wins.
@@ -330,6 +334,16 @@ local function async_grep(prompt_details, grep_opts, fetch_opts, callback)
     local buf_handle ---@type locate.util.SpawnHandle?
     local dir_handle ---@type locate.util.SpawnHandle?
     local buf_loader ---@type locate.util.bufloader.Read?  the buffer being streamed to stdin
+    local buf_err    ---@type string?  why the in-buffer ripgrep did not start
+
+    ---Whatever the picker started, stopped: called once when the query changes
+    ---or the picker closes, with either half possibly never having been run.
+    local function cancel()
+        cancelled = true
+        if buf_loader then buf_loader.cancel() end
+        if buf_handle then buf_handle.kill() end
+        if dir_handle then dir_handle.kill() end
+    end
 
     -- Both searches run as async rg jobs; finish() fires once both have settled,
     -- with buffer matches leading the merged list.
@@ -339,7 +353,7 @@ local function async_grep(prompt_details, grep_opts, fetch_opts, callback)
     -- record parsed matches. Items are built here instead: finish() runs on the
     -- main loop (spawn schedules its exit callback), and costs one pass over the
     -- kept records rather than a schedule per chunk.
-    local pending   = 2
+    local pending   = only_buffers and 1 or 2
     local function finish()
         if cancelled then return end
         local recs = {}
@@ -455,7 +469,7 @@ local function async_grep(prompt_details, grep_opts, fetch_opts, callback)
             buf_loader = read
         end
 
-        buf_handle = spawn(
+        buf_handle, buf_err = spawn(
             rgutil.build_cmd(prompt_details, true),
             {
                 cwd    = cwd,
@@ -476,8 +490,19 @@ local function async_grep(prompt_details, grep_opts, fetch_opts, callback)
             pump(1)
         else
             buf_done = true
+            -- The directory half reports a ripgrep that never started, running
+            -- the same exe; with no directory half there is no one else to say
+            -- it, so an empty list would be all the user got.
+            if only_buffers then
+                errors[#errors + 1] =
+                    ("ripgrep (%s): %s"):format(rgutil.exe(), buf_err or "failed to start")
+            end
         end
     end
+
+    -- With `buffers` the in-buffer half was the whole search, and it settles on
+    -- its own: there is no second half left to wait for.
+    if only_buffers then return cancel end
 
     ----------------------------------------------------------------------------
     -- Directory search (rg over the filesystem, open buffers excluded).
@@ -536,12 +561,7 @@ local function async_grep(prompt_details, grep_opts, fetch_opts, callback)
         on_error(string.format("ripgrep (%s): %s", rgutil.exe(), spawn_err or "failed to start"))
     end
 
-    return function()
-        cancelled = true
-        if buf_loader then buf_loader.cancel() end
-        if buf_handle then buf_handle.kill() end
-        if dir_handle then dir_handle.kill() end
-    end
+    return cancel
 end
 
 ---@param opts locate.livegrep.opts?

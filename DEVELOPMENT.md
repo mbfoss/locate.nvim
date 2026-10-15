@@ -70,7 +70,8 @@ completion, and the argument list the flags build.
   to match (`regex`, `case`, `nocase`, `word`, `line`, `invert`), shared by
   every search; `live_grep` composes its own schema around it for *where*
   (`dir`, `filter`, `type`) and *how to walk it* (`follow`, `hidden`,
-  `no-ignore`, `max-depth`), which a single buffer has no use for.
+  `no-ignore`, `max-depth`), which a single buffer has no use for. Its
+  `buffers` skips the walk altogether, leaving the open buffers as the search.
 - `build_cmd` holds what any search shares (the JSON output contract, how the
   query is read); its `stdin` flag adds the `-` target, for both the in-buffer
   half of `live_grep` and `buffer_lines`, which searches the buffer by writing
