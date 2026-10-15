@@ -299,7 +299,7 @@ Naming:
 | Group | Links to |
 | --- | --- |
 | `LocatePickerMatch` | `Visual` |
-| `LocatePickerPath` | `@namespace` |
+| `LocatePickerPath` | `@module` |
 | `LocatePickerBufferIndicator` | `Special` |
 | `LocatePickerFlagPill` | `Visual` |
 | `LocatePickerFlagPillEdge` | derived: the colour `LocatePickerFlagPill` is filled with (its foreground where the group is reversed) |

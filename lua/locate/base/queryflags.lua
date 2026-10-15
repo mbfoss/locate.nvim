@@ -416,14 +416,14 @@ function M.highlight(schema, raw)
             local name_end = piece.eq and (piece.eq - 1) or piece.finish
             table.insert(hls, { start = s0, finish = name_end, hl = "@keyword" })
             if piece.eq then
-                table.insert(hls, { start = piece.eq - 1, finish = piece.eq, hl = "@tag.delimiter" })
+                table.insert(hls, { start = piece.eq - 1, finish = piece.eq, hl = "@punctuation" })
             end
         elseif piece.kind == "value" and e0 > s0 then
             table.insert(hls, { start = s0, finish = e0, hl = "@string" })
             -- A comma only separates where the flag takes a list.
             if defs[_key(piece.name)].multi then
                 for _, pos in ipairs(piece.seps or {}) do
-                    table.insert(hls, { start = pos - 1, finish = pos, hl = "@tag.delimiter" })
+                    table.insert(hls, { start = pos - 1, finish = pos, hl = "@punctuation" })
                 end
             end
         end

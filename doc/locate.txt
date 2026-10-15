@@ -24,19 +24,19 @@ diagnostics, quickfix, keymaps, commands and more) behind a single `:Locate`
 command. It can replace `vim.ui.select`, and other plugins can register their
 own sources.
 
-Features not found in other pickers
+Features not found in other pickers:
 
-- Live search flags/options modification without the need to reopen the picket
-- Grep search inludes unsaved changes in a buffer instead of always using the on-disk version,
+- Live search flags/options modification without the need to reopen the picker.
+- Grep search includes unsaved changes instead of always using the on-disk version,.
+
+
+==============================================================================
+1. Installation                                          *locate-installation*
 
 
   **Requires Neovim >= 0.10.** No plugin dependencies. `live_grep` and
   `buffer_lines` require ripgrep <https://github.com/BurntSushi/ripgrep> on
   `$PATH`; every other source, `files` included, is pure Lua.
-
-==============================================================================
-1. Installation                                          *locate-installation*
-
 **vim.pack**: the built-in package manager (Neovim >= 0.12, `:help vim.pack`):
 
 >lua
@@ -349,7 +349,7 @@ Naming:
   ----------------------------------- -----------------------------------
   LocatePickerMatch                   Visual
 
-  LocatePickerPath                    @namespace
+  LocatePickerPath                    @module
 
   LocatePickerBufferIndicator         Special
 

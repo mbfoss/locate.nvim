@@ -196,7 +196,7 @@ end
 --- this again afterwards.
 function M.apply_highlights()
     vim.api.nvim_set_hl(0, "LocatePickerMatch", { default = true, link = "Visual" })
-    vim.api.nvim_set_hl(0, "LocatePickerPath", { default = true, link = "@namespace" })
+    vim.api.nvim_set_hl(0, "LocatePickerPath", { default = true, link = "@module" })
     vim.api.nvim_set_hl(0, "LocatePickerBufferIndicator", { default = true, link = "Special" })
     vim.api.nvim_set_hl(0, "LocatePickerFlagPill", { default = true, link = "Visual" })
 end
