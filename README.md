@@ -12,15 +12,10 @@ diagnostics, quickfix, keymaps, commands and more) behind a single `:Locate`
 command. It can replace `vim.ui.select`, and other plugins can register their
 own sources.
 
-Features not found in other pickers
+Features not found in other pickers:
 
-* Live search flags/options modification without the need to reopen the picket
-* Grep search inludes unsaved changes in a buffer instead of always using the on-disk version, 
-
-> **Requires Neovim >= 0.10.** No plugin dependencies. `live_grep` and
-> `buffer_lines` require
-> [ripgrep](https://github.com/BurntSushi/ripgrep) on `$PATH`; every other
-> source, `files` included, is pure Lua.
+* Live search flags/options modification without the need to reopen the picker.
+* Grep search includes unsaved changes instead of always using the on-disk version,.
 
 <!-- panvimdoc-ignore-start -->
 
@@ -41,6 +36,11 @@ the file:
 <!-- panvimdoc-ignore-end -->
 
 ## Installation <!-- tag: installation -->
+
+> **Requires Neovim >= 0.10.** No plugin dependencies. `live_grep` and
+> `buffer_lines` require
+> [ripgrep](https://github.com/BurntSushi/ripgrep) on `$PATH`; every other
+> source, `files` included, is pure Lua.
 
 **`vim.pack`**: the built-in package manager (Neovim >= 0.12,
 `:help vim.pack`):
