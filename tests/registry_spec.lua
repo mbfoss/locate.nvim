@@ -216,22 +216,6 @@ describe("initial cursor, per source", function()
         assert.equals(vim.g.colors_name or "default", items[row].data.name)
     end)
 
-    it("buffer_lines opens on the line holding the cursor", function()
-        local bufnr = vim.api.nvim_create_buf(false, true)
-        vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "alpha", "beta", "gamma" })
-        vim.api.nvim_win_set_buf(0, bufnr)
-        vim.api.nvim_win_set_cursor(0, { 3, 0 })
-
-        local spec = require("locate.pickers.lines").spec({ bufnr = bufnr })
-        local items
-        spec.finder("", {}, FETCH_OPTS, function(new_items) items = new_items end)
-        -- The buffer is read a chunk at a time before any row is built, so the
-        -- rows arrive off the finder's own callback.
-        assert(vim.wait(5000, function() return items ~= nil end, 10), "no rows were built")
-
-        assert.equals(3, items[spec.initial_cursor(items)].data.lnum)
-    end)
-
     it("qflist opens on the entry the list is parked at", function()
         local path = vim.fn.tempname()
         vim.fn.writefile({ "one", "two", "three" }, path)

@@ -222,8 +222,8 @@ Notes:
     `buffers` searches the open buffers alone, skipping the directory walk, so
     there is nothing for `follow`, `hidden` and `no-ignore` to act on.
 - `buffer_lines` searches the buffer with ripgrep, so its query and its flags
-    (`regex`, `case`, `word`, `line`, `invert`) read as they do in `live_grep`; an
-    empty query lists the buffer’s non-blank lines.
+    (`regex`, `case`, `word`, `line`, `invert`) read as they do in `live_grep`; as
+    in `files` and `live_grep`, an empty query lists nothing.
 - `lsp_definitions`, `lsp_declarations`, `lsp_implementations` and
     `lsp_type_definitions` jump straight to their target on a single result.
 - `lsp_workspace_symbols` asks the server once with an empty query and filters
