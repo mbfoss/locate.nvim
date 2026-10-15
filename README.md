@@ -49,9 +49,6 @@ the file:
 vim.pack.add({ "https://github.com/mbfoss/locate.nvim" })
 ```
 
-- `vim.pack.update()` updates it, `vim.pack.del({ "locate.nvim" })` removes it.
-- On Neovim 0.10, use a plugin manager.
-
 **lazy.nvim**
 
 ```lua
