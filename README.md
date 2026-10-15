@@ -50,22 +50,12 @@ vim.pack.add({ "https://github.com/mbfoss/locate.nvim" })
 **lazy.nvim**
 
 ```lua
-{
-  "mbfoss/locate.nvim",
-  -- `plugin/` registers `:Locate` and the highlight groups without requiring
-  -- any Lua, so the stub works from a fresh start and loads the picker on
-  -- first use.
-  cmd = "Locate",
-  -- setup() is optional, and only needed to change a default:
-  -- opts = { ... }, -- see Configuring the picker
-}
+{ "mbfoss/locate.nvim", cmd = "Locate" }
 ```
 
-Use `lazy = false` instead when your config reaches into the plugin before
-that: assigning `vim.ui.select = require("locate.select")` at startup, or
-registering a `:Pick` alias with `create_cmd_alias`. A plugin that has not
-loaded yet is not on the runtimepath, so those `require` calls would have
-nothing to find.
+Use `lazy = false` instead if you use the plugin in your own config, setting
+`vim.ui.select` to `require("locate.select")` or registering a `:Pick` alias:
+those lines need it loaded at startup.
 
 ## Configuring the picker <!-- tag: configuration -->
 
