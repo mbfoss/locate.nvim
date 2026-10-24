@@ -45,4 +45,4 @@ luac.out
 .luarc.json
 .ndebug.json
 /.luarocks
-/demo
+/data/demo
