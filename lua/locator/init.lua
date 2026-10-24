@@ -131,7 +131,9 @@ end
 
 ---@param picker_type string?
 ---@param prompt locator.PickPrompt?
-function M.pick(picker_type, prompt)
+---@param opts table? Extra options handed to the source factory; the `loclist`
+---source takes `winid`, the window whose list should be shown.
+function M.pick(picker_type, prompt, opts)
     local registry    = require("locator.registry")
     local pickertools = require("locator.base.pickertools")
     if not picker_type or picker_type == "" then
@@ -147,7 +149,7 @@ function M.pick(picker_type, prompt)
         return
     end
 
-    local spec = registry.get(picker_type)
+    local spec = registry.get(picker_type, opts)
     if spec then
         spec.history_provider = spec.history_provider or pickertools.make_history_provider(picker_type)
         _open_spec(spec, prompt)
@@ -183,7 +185,7 @@ end
 ---@param opts locator.Config?
 function M.setup(opts)
     cfgmod.apply(opts)
-    require("locator.copen").apply(cfgmod.current.replace_copen)
+    require("locator.copen").apply(cfgmod.current)
 end
 
 ---Register a user command `name` that forwards its arguments and completion to

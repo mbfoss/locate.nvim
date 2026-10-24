@@ -385,7 +385,7 @@ M.SEVERITY_ICONS = {
 ---The glyph and highlight for an item that carries none of those four codes --
 ---a diagnostic with no recognised severity, or a quickfix entry with no type.
 ---@type {[1]:string,[2]:string}
-M.UNKNOWN_ICON = { "󰠠", "NonText" }
+M.UNKNOWN_ICON = { "●", "NonText" }
 
 ---Append one `- Label: value` row to a preview's `lines`, unless the value is
 ---absent or empty. `fmt` turns the raw field into text, or nil to drop it, and

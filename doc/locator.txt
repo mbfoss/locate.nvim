@@ -70,6 +70,7 @@ plugin loaded at startup.
       preview_ratio       = 0.5,
       auto_complete_flags = true, -- auto-open flag completion on an empty flags line and while typing
       replace_copen       = false, -- open the quickfix picker in place of the native quickfix window
+      replace_lopen       = false, -- open the loclist picker in place of the native location-list window
       rg_path             = nil, -- ripgrep executable for `live_grep` (unset: "rg" off the `PATH`)
     })
 <
@@ -77,7 +78,12 @@ plugin loaded at startup.
 With `replace_copen`, a quickfix window is closed again and the `quickfix`
 source opens in its place. This covers `:copen` however it runs, including the
 window `<C-q>` calls for and the one `:grep` or `:make` opens. An empty list
-keeps the native window, and a location list is left alone.
+keeps the native window.
+
+With `replace_lopen`, the same happens to `:lopen`: the location-list window
+is closed and the `loclist` source opens for the list belonging to the window
+where `:lopen` ran. An empty list keeps the native window. The two options are
+independent.
 
 A picker opens as a compact bar, keeping a cell of margin either side and flush
 with the bottom of the editor. `<C-t>` shows the preview on the right of that

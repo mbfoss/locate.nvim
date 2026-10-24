@@ -13,7 +13,12 @@ local _pickers = {
         })
     end,
     quickfix              = function() return require("locator.pickers.qflist").spec() end,
-    loclist               = function() return require("locator.pickers.qflist").spec({ list_type = "loclist" }) end,
+    loclist               = function(opts)
+        return require("locator.pickers.qflist").spec({
+            list_type = "loclist",
+            winid     = opts and opts.winid,
+        })
+    end,
     jumplist              = function() return require("locator.pickers.jumplist").spec() end,
     marks                 = function() return require("locator.pickers.marks").spec() end,
     buffer_lines          = function() return require("locator.pickers.lines").spec() end,
@@ -116,11 +121,13 @@ function M.pickable_keys()
 end
 
 ---@param name string
+---@param opts table? Passed to a source registered as a factory, so a caller
+---can aim it at a particular window or list.
 ---@return locator.PickerSpec?
-function M.get(name)
+function M.get(name, opts)
     local entry = _pickers[name]
     if entry == nil then return nil end
-    if type(entry) == "function" then return entry() end
+    if type(entry) == "function" then return entry(opts) end
     return entry
 end
 
